@@ -1,5 +1,5 @@
 {
-  "version": "0.9.0",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.9.0.rbz",
-  "notes": "Place Walls now works in a top-down plan view like the floor plan, with wall IDs and 'butts into' labels at each corner. Esc returns to your 3D view and the Frame tool."
+  "version": "0.10.0",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.10.0.rbz",
+  "notes": "Plan first, then corners: Place Walls just draws the floor plan. The new Corners tool (plan view) lets students click each wall to make it run through or butt; corners trim as they go, conflicts are flagged, tees butt on their own. Framing waits until a wall's corners are settled."
 }

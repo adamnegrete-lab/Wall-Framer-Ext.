@@ -6,11 +6,13 @@ M = Sketchup.active_model; V = M.active_view
 def chk(c, m) = (puts((c ? 'PASS ' : 'FAIL ') + m); $f = true unless c)
 module Sketchup; class Group; def bounds = Geom::BoundingBox.new; end; end
 t = DrawWallTool.new('Level 1', 'EXT 2x6'); t.activate
-t.onLButtonDown(0, 0, 0, V); t.onKeyDown(9,0,0,V)
-t.onMouseMove(0, 100, 0, V); t.onUserText("16'", V); t.onKeyDown(9,0,0,V)
-t.onMouseMove(0, 192, 80, V); t.onUserText("12'", V); t.onKeyDown(9,0,0,V)
-t.onMouseMove(0, 50, 144, V); t.onUserText("16'", V); t.onKeyDown(9,0,0,V)
+t.onLButtonDown(0, 0, 0, V)
+t.onMouseMove(0, 100, 0, V); t.onUserText("16'", V)
+t.onMouseMove(0, 192, 80, V); t.onUserText("12'", V)
+t.onMouseMove(0, 50, 144, V); t.onUserText("16'", V)
 t.onMouseMove(0, 0, 70, V); t.onUserText("12'", V)
+id_ = ->(n) { Builder.all_walls.find { |w| Builder.params_of(w)['id'] == n } }
+Builder.set_run(id_.('W-101'), 'through'); Builder.set_run(id_.('W-103'), 'through')
 id = ->(n) { Builder.all_walls.find { |w| Builder.params_of(w)['id'] == n } }
 s_w = id.('W-101'); e_w = id.('W-102')
 cn = ->(w) { Builder.params_of(w)['corner_need'].transform_values { |v| [v['type'], v['side'], v['by']].compact } }

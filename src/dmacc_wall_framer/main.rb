@@ -1,7 +1,7 @@
 require 'sketchup.rb'
 require 'json'
 
-%w[version updater views framing corners joints inspector takeoff answer_key yard_logic shop project builder yard_view tools install_tool guided_tool dialogs].each do |f|
+%w[version updater views framing corners joints inspector takeoff answer_key yard_logic shop project builder yard_view tools corner_tool install_tool guided_tool dialogs].each do |f|
   Sketchup.require(File.join(__dir__, f))
 end
 
@@ -209,6 +209,12 @@ module DMACC
         Dialogs.tool.set_mode('nail') if Dialogs.tool.respond_to?(:set_mode)
       end
 
+      def corners_tool
+        Builder.close_edits
+        return UI.messagebox('Place some walls first.') if Builder.all_walls.empty?
+        Sketchup.active_model.select_tool(CornerTool.new)
+      end
+
       def tape_tool
         Builder.close_edits
         Sketchup.send_action('selectMeasureTool:')
@@ -290,12 +296,15 @@ module DMACC
 
     # ---------- the toolbar: the job-site sequence, left to right ----------
     # (its own guard, so "Reload After Update" can add it without a restart)
-    unless file_loaded?('dmacc_wf_toolbar_v2')
-      UI.toolbar('Wall Framer').hide if UI.respond_to?(:toolbar_names) && UI.toolbar_names.include?('Wall Framer')
-      tb = UI::Toolbar.new('Wall Framer Tools')
+    unless file_loaded?('dmacc_wf_toolbar_v3')
+      %w[Wall\ Framer Wall\ Framer\ Tools].each do |old|
+        UI.toolbar(old).hide if UI.respond_to?(:toolbar_names) && UI.toolbar_names.include?(old)
+      end
+      tb = UI::Toolbar.new('Wall Framer Steps')
       icons = File.join(__dir__, 'icons')
       [['Project Setup - levels and wall types', 'setup', proc { Dialogs.open_setup }],
-       ['Place Walls', 'wall', proc { draw_wall }],
+       ['Place Walls (plan view)', 'wall', proc { draw_wall }],
+       ['Corners - which walls run through (plan view)', 'corners', proc { corners_tool }],
        ['Frame - pick up where you left off (click a wall to switch)', 'frame', proc { frame_tool }],
        ['Tape Measure (click Frame when done)', 'tape', proc { tape_tool }],
        ['Double Top Plates (top view)', 'dtp', proc { dtp_tool }],
@@ -311,7 +320,7 @@ module DMACC
         tb.add_item(cmd)
       end
       tb.show
-      file_loaded('dmacc_wf_toolbar_v2')
+      file_loaded('dmacc_wf_toolbar_v3')
     end
   end
 end

@@ -387,7 +387,9 @@ module DMACC
           unit = ws.select { |sl| sl.phase == 'opening' }
           com = ws.select { |sl| sl.phase == 'commons' }
           dtp = ws.select { |sl| sl.phase == 'dtp' }
+          oc = Builder.open_corners(p)
           steps = [
+            ['0. Corners', oc.empty? ? 'set' : "#{oc.size} to settle (Corners tool)", oc.empty?],
             [STEP_NAMES[0], "#{done.call(plates)} of #{plates.size} cut and set", done.call(plates) == plates.size],
             [STEP_NAMES[1], "#{p['openings'].size} opening#{p['openings'].size == 1 ? '' : 's'} laid out", done.call(plates) == plates.size && (p['openings'].any? || done.call(com) > 0)],
             [STEP_NAMES[2], unit.empty? ? 'no openings' : "#{done.call(unit)} of #{unit.size} pieces", unit.all? { |sl| Inspector.slot_done?(sl, e[sl.id]) }],

@@ -106,7 +106,8 @@ module DMACC
 
         params = apply_type({}, type)
         params.merge!('id' => Project.next_wall_id(level_name), 'level' => level_name,
-                       'length' => vec.length.to_f, 'openings' => [], 'entries' => {}, 'flags' => [])
+                       'length' => vec.length.to_f, 'openings' => [], 'entries' => {}, 'flags' => [],
+                       'layout' => { 'p1' => [a.x.to_f, a.y.to_f], 'p2' => [b.x.to_f, b.y.to_f] }, 's0' => 0.0)
         xaxis = vec.normalize
         yaxis = Z_AXIS * xaxis # wall body sits LEFT of the pick direction
         group = model.entities.add_group
@@ -136,6 +137,89 @@ module DMACC
         slots ||= work_slots(params)
         by = slots.to_h { |s| [s.id, s] }
         Inspector.gate(slot, params['entries'] || {}, by)
+      end
+
+      # ---------- plan corners (runs through / butts) ----------
+
+      def layout_of(w)
+        p = params_of(w)
+        return p['layout'] if p['layout']
+        a, b = endpoints(w) # walls from older versions: their current line
+        { 'p1' => [a.x.to_f, a.y.to_f], 'p2' => [b.x.to_f, b.y.to_f] }
+      end
+
+      def plan_input(level)
+        all_walls.select { |w| params_of(w)['level'] == level }.map do |w|
+          p = params_of(w)
+          l = layout_of(w)
+          { 'id' => p['id'], 'p1' => l['p1'], 'p2' => l['p2'], 'depth' => Framing.depth(p), 'run' => p['run'] }
+        end
+      end
+
+      # [ {id=>{'s','e'}}, corners ] for a level
+      def plan_corners(level)
+        Corners.resolve(plan_input(level))
+      end
+
+      def framed?(p)
+        (p['entries'] || {}).any? || (p['marks'] || []).any?
+      end
+
+      # Walls whose length would change if this wall's run setting changed.
+      def affected_by_run(group, run)
+        p = params_of(group)
+        input = plan_input(p['level'])
+        before, = Corners.resolve(input)
+        after, = Corners.resolve(input.map { |x| x['id'] == p['id'] ? x.merge('run' => run) : x })
+        after.keys.reject { |id| after[id] == before[id] }
+      end
+
+      def set_run(group, run)
+        p = params_of(group)
+        p['run'] = run
+        set_params(group, p)
+        resolve_layout(p['level'])
+      end
+
+      # Trim / extend every wall on a level from its layout line and the corners.
+      # A wall whose length changes after framing started has its framing reset.
+      def resolve_layout(level)
+        out, = plan_corners(level)
+        all_walls.select { |w| params_of(w)['level'] == level }.each do |w|
+          p = params_of(w)
+          r = out[p['id']] or next
+          l = layout_of(w)
+          s = r['s']
+          len = r['e'] - s
+          next if (len - p['length'].to_f).abs < 1e-6 && (s - p['s0'].to_f).abs < 1e-6 && p['layout']
+          delta = s - p['s0'].to_f
+          a = Geom::Point3d.new(l['p1'][0], l['p1'][1], w.transformation.origin.z)
+          u = Geom::Vector3d.new(l['p2'][0] - l['p1'][0], l['p2'][1] - l['p1'][1], 0)
+          u.normalize!
+          o = a.offset(u, s)
+          w.transformation = Geom::Transformation.axes(o, u, Z_AXIS * u, Z_AXIS)
+          p['layout'] = l
+          p['s0'] = s
+          p['length'] = len
+          p['openings'] = p['openings'].map { |op| op.merge('x' => op['x'].to_f - delta) }
+          if framed?(p)
+            pulled = (p['entries'] || {}).values.flat_map { |e| e['pieces'] || [] }
+            Yard.change { |y| pulled.each { |pc| y['offcuts'] << { 'id' => YardLogic.new_id(y, 'O'), 'size' => pc['size'], 'length' => pc['length'].to_f } } }
+            %w[marks pencil corners oc last_inspection].each { |k| p.delete(k) }
+            p['entries'] = {}
+            p['flags'] = []
+            Project.update { |d| d['dtp_order'] = (d['dtp_order'] || []) - [p['id']] }
+          end
+          set_params(w, p)
+          rebuild(w)
+        end
+        refresh_corner_needs(level)
+      end
+
+      # Corners on this wall that still need a decision (unset / conflict).
+      def open_corners(p)
+        _out, corners = plan_corners(p['level'])
+        corners.select { |c| c['walls'].include?(p['id']) && %w[unset conflict].include?(c['status']) }
       end
 
       # ---------- corners ----------
@@ -214,6 +298,7 @@ module DMACC
         e = p['entries'] || {}
         ws = work_slots(p)
         done = ->(phase) { ws.select { |s| s.phase == phase }.all? { |s| Inspector.slot_done?(s, e[s.id]) } }
+        return 'corners' if !p['entries']&.any? && open_corners(p).any?
         return 'plates' unless done.call('plates')
         return 'openings' unless p['openings_done']
         return 'units' unless done.call('opening')

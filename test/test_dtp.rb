@@ -7,12 +7,15 @@ def chk(c, m) = (puts((c ? 'PASS ' : 'FAIL ') + m); $f = true unless c)
 module Sketchup; class Group; def bounds = Geom::BoundingBox.new; end; end
 # place the bunkhouse with the chain tool (S through, E butt, N through, W butt) + closet wall
 t = DrawWallTool.new('Level 1', 'EXT 2x6'); t.activate
-t.onLButtonDown(0, 0, 0, V); t.onKeyDown(9,0,0,V)
-t.onMouseMove(0, 100, 0, V); t.onUserText("16'", V); t.onKeyDown(9,0,0,V)
-t.onMouseMove(0, 192, 80, V); t.onUserText("12'", V); t.onKeyDown(9,0,0,V)
-t.onMouseMove(0, 50, 144, V); t.onUserText("16'", V); t.onKeyDown(9,0,0,V)
+t.onLButtonDown(0, 0, 0, V)
+t.onMouseMove(0, 100, 0, V); t.onUserText("16'", V)
+t.onMouseMove(0, 192, 80, V); t.onUserText("12'", V)
+t.onMouseMove(0, 50, 144, V); t.onUserText("16'", V)
 t.onMouseMove(0, 0, 70, V); t.onUserText("12'", V)
+id_ = ->(n) { Builder.all_walls.find { |w| Builder.params_of(w)['id'] == n } }
+Builder.set_run(id_.('W-101'), 'through'); Builder.set_run(id_.('W-103'), 'through')
 Builder.create_wall(Geom::Point3d.new(138.5, 5.5, 0), Geom::Point3d.new(138.5, 138.5, 0), 'Level 1', 'INT 2x4')
+Builder.resolve_layout('Level 1')
 walls = Builder.all_walls
 puts '   ' + walls.map { |w| p = Builder.params_of(w); "#{p['id']} #{Framing.fmt_len(p['length'])}" }.join(', ')
 ws, shapes, joints = Builder.dtp_context('Level 1')

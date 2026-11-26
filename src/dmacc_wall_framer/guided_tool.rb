@@ -131,6 +131,9 @@ module DMACC
             pencil(g, reading(lx))
           end
           announce(g, before)
+        elsif @target && Builder.stage(@target[2]) == 'corners'
+          UI.beep
+          Sketchup.status_text = "#{@target[2]['id']}: set the corners first - click the Corners tool."
         elsif @target
           g, slot, p = @target
           before = Builder.stage(p)
@@ -497,6 +500,7 @@ module DMACC
         nxt = Builder.next_slots(p).first(3).map(&:label)
         Sketchup.status_text =
           case Builder.stage(p)
+          when 'corners' then "#{p['id']}: set the corners first - click the Corners tool and decide which walls run through."
           when 'plates' then "#{p['id']}: cut and set the plates - click the bottom plate spot, then the top plate."
           when 'openings' then "#{p['id']}: pull the tape along the bottom plate (blue). Type your plan dimension + Enter (or click) for a pencil mark, then click the mark to lay out the opening."
           when 'units' then "#{p['id']}: build the opening units. Next: #{nxt.join(', ')}."
