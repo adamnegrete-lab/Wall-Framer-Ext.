@@ -313,3 +313,4 @@ module Sketchup
     end
   end
 end
+module Geom; class Vector3d; def reverse! = (@x, @y, @z = -x, -y, -z; self); end; end

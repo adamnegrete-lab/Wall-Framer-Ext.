@@ -1,5 +1,5 @@
 {
-  "version": "0.10.0",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.10.0.rbz",
-  "notes": "Plan first, then corners: Place Walls just draws the floor plan. The new Corners tool (plan view) lets students click each wall to make it run through or butt; corners trim as they go, conflicts are flagged, tees butt on their own. Framing waits until a wall's corners are settled."
+  "version": "0.10.1",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.10.1.rbz",
+  "notes": "Interior walls: hover the face of a wall already drawn and a tape pulls from the nearest inside corner. Type your plan dimension + Enter to start the wall there; the far end snaps to the opposite wall's face. Tab builds the wall on the other side of the line."
 }
