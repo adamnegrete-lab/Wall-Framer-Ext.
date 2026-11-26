@@ -367,16 +367,7 @@ module DMACC
         end
 
         def top_view
-          m = Sketchup.active_model
-          bb = Geom::BoundingBox.new
-          Builder.all_walls.each { |w| bb.add(w.bounds) }
-          c = bb.center
-          cam = Sketchup::Camera.new(Geom::Point3d.new(c.x, c.y, c.z + 2000), c, Y_AXIS)
-          cam.perspective = false
-          m.active_view.camera = cam
-          m.active_view.zoom(Builder.all_walls)
-        rescue StandardError => e
-          puts "top view: #{e.message}"
+          Views.plan(Builder.all_walls.map { |w| w.transformation.origin.z }.min.to_f)
         end
 
         def refresh_yard

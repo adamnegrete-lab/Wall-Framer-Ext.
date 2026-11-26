@@ -26,12 +26,15 @@ module DMACC
 
       def activate
         Builder.close_edits
+        Views.save
+        Views.plan(@elev) # lay walls out like the floor plan
         @ip = Sketchup::InputPoint.new
         reset_chain
         update_ui
       end
 
       def deactivate(view)
+        Views.restore # back to the 3D view for framing
         view.invalidate
       end
 
@@ -275,6 +278,7 @@ module DMACC
       SNAP_COLORS = { x: 'red', y: 'green', prev: 'magenta', perp: 'magenta', lock: 'black', point: 'black', guide: 'black' }.freeze
 
       def draw(view)
+        draw_plan_labels(view)
         @ip.draw(view) if @ip.valid? && @snap == :point
         return unless @start && @end
         dir = @end - @start
@@ -302,6 +306,26 @@ module DMACC
         label += '  (far end is set by the next wall)' if pv[:corner] && !pv[:closing]
         label += "  |  #{snap_name}" if @snap && @snap != :point
         view.draw_text(view.screen_coords(@end), label)
+      end
+
+      # Floor-plan notes: each wall's ID and, at each corner already drawn,
+      # which wall runs through and which butts.
+      def draw_plan_labels(view)
+        walls = Builder.all_walls.select { |w| Builder.params_of(w)['level'] == @level }
+        return if walls.empty?
+        shapes = walls.map { |w| Builder.wall_shape(w) }
+        shapes.each do |sh|
+          mid = Joints.at(sh, sh['len'] / 2.0, sh['depth'] / 2.0)
+          view.draw_text(view.screen_coords(Geom::Point3d.new(mid[0], mid[1], @elev)), sh['id'])
+        end
+        Joints.find(shapes).each do |j|
+          b = shapes.find { |x| x['id'] == j['butt'] }
+          at = Joints.at(b, j['end'] == 'start' ? 8.0 : b['len'] - 8.0, b['depth'] / 2.0)
+          view.draw_text(view.screen_coords(Geom::Point3d.new(at[0], at[1], @elev)),
+                         "#{j['butt']} butts into #{j['through']}")
+        end
+      rescue StandardError
+        nil
       end
 
       def rect(view, pts, color, width, dashed)

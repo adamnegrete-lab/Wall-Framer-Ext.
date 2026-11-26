@@ -283,3 +283,33 @@ module Sketchup
     def select_tool(t) = (@tool = t; t.activate if t.respond_to?(:activate))
   end
 end
+module Geom
+  class BoundingBox
+    def initialize = (@pts = [])
+    def add(*p) = (@pts.concat(p.flatten.select { |x| x.is_a?(Point3d) }); self)
+    def empty? = @pts.empty?
+    def center = (@pts.empty? ? Point3d.new : Point3d.new(@pts.sum(&:x) / @pts.size, @pts.sum(&:y) / @pts.size, @pts.sum(&:z) / @pts.size))
+  end
+  class Point3d; def clone = Point3d.new(x, y, z); end
+end
+module Sketchup
+  class Camera
+    attr_accessor :eye, :target, :up, :perspective, :height
+    def initialize(e = Geom::Point3d.new(-500, -500, 400), t = Geom::Point3d.new, u = Z_AXIS) = (@eye, @target, @up, @perspective, @height = e, t, u, true, 500)
+    def perspective? = @perspective
+  end
+  class View
+    attr_writer :camera
+    def camera = (@camera ||= Camera.new)
+  end
+  class Group; def bounds = (b = Geom::BoundingBox.new; b.add(transformation.origin); b); end
+end
+module Sketchup
+  class Model
+    def select_tool(t)
+      @tool.deactivate(active_view) if @tool.respond_to?(:deactivate) && !@tool.equal?(t)
+      @tool = t
+      t.activate if t.respond_to?(:activate)
+    end
+  end
+end

@@ -1,5 +1,5 @@
 {
-  "version": "0.8.1",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.8.1.rbz",
-  "notes": "Clearer corners when drawing walls: the wall that runs through is outlined in orange, the corner is labeled by wall name, the length shows both ways, and a one-time explanation of runs through vs butts."
+  "version": "0.9.0",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.9.0.rbz",
+  "notes": "Place Walls now works in a top-down plan view like the floor plan, with wall IDs and 'butts into' labels at each corner. Esc returns to your 3D view and the Frame tool."
 }
