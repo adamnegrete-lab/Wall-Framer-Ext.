@@ -217,6 +217,7 @@ module DMACC
         if g
           notes.concat(join(@prev, g, @through ? :next : :prev)) if @prev
           notes.concat(join(g, @first, @through ? :prev : :next)) if closing
+          Builder.refresh_corner_needs(@level)
         end
         model.commit_operation
         unless g

@@ -19,7 +19,7 @@ UI.answers[:inputbox] = lambda do |prompts, vals, lists, title|
     @seen_cl ||= vals[0]
     o = @ops.shift; o[0] = vals[0]; next o
   end
-  next [@marks.shift] if title.start_with?('Stud layout mark')
+  next @studs.shift if title.start_with?('Corner') || title.start_with?('Stud layout')
   p = Builder.params_of(g)
   s = Builder.work_slots(p).find { |sl| title.start_with?(sl.label + ' -') }
   raise "no slot for #{title}" unless s
@@ -59,15 +59,13 @@ while Builder.stage(Builder.params_of(g)) == 'units' && n < 60
   s = Builder.next_slots(Builder.params_of(g)).first; click.(s); n += 1
 end
 chk(Builder.stage(Builder.params_of(g)) == 'commons', "opening units built with #{n} pop-ups")
-chk(UI.messages.any? { |m| m.include?('lay out your common studs') }, 'prompted to lay out commons')
+chk(UI.messages.any? { |m| m.include?('choose its corner assembly') }, 'prompted for corner assemblies + spacing')
 # commons: mark stud centers, then click each
-face.(40.0, 0.9); tool.onMouseMove(0,0,0,V)
-%w[16 80 96 160 176].each { |r| tool.onUserText(r, V) }
-chk((Builder.params_of(g)['marks'] || []).size == 5, "typed readings -> 5 stud X marks")
-n2 = 0
-while (s = Builder.next_slots(Builder.params_of(g)).first) && n2 < 20
-  click.(s); n2 += 1
-end
+@studs = [[GuidedTool::CORNERS['single']], [GuidedTool::CORNERS['single']], ['16']]
+face.(5.0, 50.0); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
+face.(187.0, 50.0); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
+n2 = (Builder.params_of(g)['marks'] || []).size
+chk(n2 == 5, "corners + 16\" O.C. -> #{n2} commons laid out and nailed")
 p = Builder.params_of(g)
 chk(Builder.stage(p) == 'framed', "framed (#{n2} commons + end studs)")
 chk(UI.messages.last.include?('is framed'), 'told the wall is framed')

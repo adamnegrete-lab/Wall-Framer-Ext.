@@ -215,6 +215,7 @@ module DMACC
         # Runs an inspection on one wall at the instructor's feedback level,
         # flags errors red in the model and logs the attempt.
         def inspect_group(g)
+          Builder.refresh_corner_needs(Builder.params_of(g)['level'])
           level = Project.settings['feedback']
           p = Builder.params_of(g)
           full = Inspector.inspect_wall(p, p['entries'], level: 'fix', table: Project.header_table, student_layout: Project.settings['student_layout'])

@@ -54,12 +54,25 @@ module DMACC
           hit = wall_hit(g, p, ray)
           face = [hit[0], g, p, hit[1], hit[2]] if hit && (face.nil? || hit[0] < face[0])
         end
+        @corner = nil
+        # Stud step: click near either end of the wall to choose its corner assembly
+        if face && Builder.stage(face[2]) == 'commons'
+          _, cg, cp, clx, = face
+          reach = [24.0, cp['length'].to_f / 4].min
+          end_name = if clx <= reach then 'start'
+                     elsif clx >= cp['length'].to_f - reach then 'end'
+                     end
+          if end_name
+            @corner = [cg, cp, end_name]
+            focus(cp['id'])
+            return
+          end
+        end
         plate = Builder.all_walls.map { |g| plate_point(view, x, y, g, Builder.params_of(g), ray) }.compact.min_by { |h| h[4] }
-        plate = nil if plate && !%w[openings commons].include?(Builder.stage(plate[1]))
+        plate = nil if plate && Builder.stage(plate[1]) != 'openings'
         # Anywhere on the bottom plate's face counts too (not just its top edge)
         # At the openings step a click anywhere on the wall works (the pop-up asks the distance)
-        if face && %w[openings commons].include?(Builder.stage(face[2])) &&
-           (face[4] <= Framing::T + 2.5 || Builder.stage(face[2]) == 'openings')
+        if face && Builder.stage(face[2]) == 'openings'
           _, fg, fp, flx, = face
           snapped = plate && plate[3] && plate[0] == fg
           plate = snapped ? plate : [fg, fp, flx, false, face[0]]
@@ -103,6 +116,11 @@ module DMACC
         pick(view, x, y)
         if @mode == :dtp
           click_dtp
+        elsif @corner
+          g, p, end_name = @corner
+          before = Builder.stage(p)
+          corner_popup(g, end_name)
+          announce(g, before)
         elsif @mark
           g, p, lx, guide, _t, pen = @mark
           before = Builder.stage(p)
@@ -140,9 +158,9 @@ module DMACC
         return super if @mode == :dtp || g.nil?
         p = Builder.params_of(g)
         stage = Builder.stage(p)
-        unless %w[openings commons].include?(stage)
+        unless stage == 'openings'
           UI.beep
-          Sketchup.status_text = 'Type a tape reading during layout (openings or stud layout).'
+          Sketchup.status_text = 'Type a tape reading while laying out openings.'
           return
         end
         x = Framing.parse_len(text)
@@ -159,6 +177,46 @@ module DMACC
           announce(g, before)
         end
         view.invalidate
+      end
+
+      CORNERS = {
+        'single' => 'Single stud (this wall butts into another, or a free end)',
+        'L' => 'L-corner post (another wall butts into this end)'
+      }.freeze
+
+      def corner_popup(g, end_name)
+        Builder.refresh_corner_needs(Builder.params_of(g)['level'])
+        p = Builder.params_of(g)
+        where = end_name == 'start' ? 'wall start (arrow end)' : 'wall end'
+        cur = CORNERS[(p['corners'] || {})[end_name]] || CORNERS['single']
+        res = UI.inputbox(["Corner assembly at the #{where}"], [cur], [CORNERS.values.join('|')], "Corner - #{p['id']}")
+        return unless res
+        p['corners'] = (p['corners'] || {}).merge(end_name => CORNERS.key(res[0]))
+        Builder.set_params(g, p)
+        other = end_name == 'start' ? 'end' : 'start'
+        unless p['corners'][other]
+          Sketchup.status_text = "#{p['id']}: now click the other end of the wall for its corner assembly."
+          Builder.rebuild(g)
+          return
+        end
+        oc = UI.inputbox(['Stud layout (on center)'], [(p['oc'] || 16).to_f == 19.2 ? '19.2' : (p['oc'] || 16).to_i.to_s],
+                         ['16|19.2|24'], "Stud layout - #{p['id']}")
+        return Builder.rebuild(g) unless oc
+        model = Sketchup.active_model
+        model.start_operation('Lay Out and Nail Studs', true)
+        p = Builder.params_of(g)
+        p['oc'] = oc[0].to_f
+        Builder.set_params(g, p)
+        err = Builder.auto_frame_commons(g)
+        model.commit_operation
+        if err
+          UI.messagebox(err)
+        else
+          n = (Builder.params_of(g)['marks'] || []).size
+          Sketchup.status_text = "#{p['id']}: #{n} commons laid out at #{oc[0]}\" O.C. and nailed, with the corner assemblies."
+        end
+        Dialogs.refresh_yard
+        Dialogs.refresh_frame
       end
 
       # Not on a guide: ask for the tape reading instead of guessing a click.
@@ -316,8 +374,9 @@ module DMACC
           UI.messagebox("Openings are laid out on #{id}.\n\nNext: build each opening unit. Kings first, then jacks " \
                         "(nailed to the kings), the header, the sill, then cripples and header blocks. Click each piece's spot on the wall.")
         when 'commons'
-          UI.messagebox("#{id}: next, lay out your common studs. Hook the tape on the wall start and type each stud center " \
-                        '(16, 32, 48... or 24, 48...) and press Enter to mark an X. Then click each stud to cut and nail it.')
+          UI.messagebox("#{id}: next, the studs. Click each end of the wall and choose its corner assembly - a single stud if this " \
+                        'wall butts into another, an L-corner post if another wall butts into this end. Then pick the stud spacing ' \
+                        '(16, 19.2 or 24" O.C.) and the studs lay out and nail themselves.')
         when 'framed'
           UI.messagebox("#{id} is framed.\n\nRequest an inspection from the Framing panel. Double top plates go on " \
                         'once every wall on this level is framed and standing.')
@@ -370,6 +429,18 @@ module DMACC
             draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), Framing::T], 'blue', @mark ? 3 : 2)
           end
         end
+        if @corner
+          g, p, end_name = @corner
+          d = Framing.depth(p)
+          len = p['length'].to_f
+          x0 = end_name == 'start' ? 0.0 : len - 12.0
+          draw_box(view, g.transformation, [x0, 0, 0], [x0 + 12.0, d, p['height'].to_f], 'magenta', 3)
+          chosen = (p['corners'] || {})[end_name]
+          txt = "#{end_name == 'start' ? 'Wall start' : 'Wall end'} corner - click to choose the corner assembly"
+          txt += " (now: #{chosen == 'L' ? 'L-corner post' : 'single stud'})" if chosen
+          view.draw_text(view.screen_coords(Geom::Point3d.new(x0 + 6, 0, p['height'].to_f).transform(g.transformation)), "  #{txt}")
+          return
+        end
         if @mark
           g, p, x, guide, _t, pen = @mark
           snapped = guide || pen
@@ -416,7 +487,7 @@ module DMACC
       def update_ui
         Sketchup.vcb_label = 'Tape'
         return super if @mode == :dtp
-        return if @target || @mark
+        return if @target || @mark || @corner
         g = @focus && Builder.find_wall(@focus)
         unless g
           Sketchup.status_text = 'Hover a wall to start framing it.'
@@ -429,7 +500,7 @@ module DMACC
           when 'plates' then "#{p['id']}: cut and set the plates - click the bottom plate spot, then the top plate."
           when 'openings' then "#{p['id']}: pull the tape along the bottom plate (blue). Type your plan dimension + Enter (or click) for a pencil mark, then click the mark to lay out the opening."
           when 'units' then "#{p['id']}: build the opening units. Next: #{nxt.join(', ')}."
-          when 'commons' then "#{p['id']}: stud layout - type each reading + Enter (16, 32, 48...) to mark an X, then click each stud to nail it."
+          when 'commons' then "#{p['id']}: click each end of the wall to choose its corner assembly, then pick the stud spacing - the studs lay out and nail themselves."
           else "#{p['id']} is framed. Request an inspection from the Framing panel."
           end
       end

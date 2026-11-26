@@ -138,6 +138,75 @@ module DMACC
         Inspector.gate(slot, params['entries'] || {}, by)
       end
 
+      # ---------- corners ----------
+
+      # What each end of each wall needs, from how the walls actually meet:
+      # another wall butting into this end -> L-corner post (on that side);
+      # this wall butting into another, or a free end -> single end stud.
+      def refresh_corner_needs(level = nil)
+        levels = level ? [level] : all_walls.map { |w| params_of(w)['level'] }.uniq
+        levels.each do |lv|
+          ws = all_walls.select { |w| params_of(w)['level'] == lv }
+          shapes = ws.map { |w| wall_shape(w) }
+          joints = Joints.find(shapes)
+          ws.each do |w|
+            p = params_of(w)
+            sh = shapes.find { |x| x['id'] == p['id'] }
+            need = { 'start' => { 'type' => 'single' }, 'end' => { 'type' => 'single' } }
+            joints.each do |j|
+              next unless j['through'] == p['id'] && j['kind'] == 'corner'
+              end_name = j['a0'] <= sh['depth'] + 0.5 ? 'start' : 'end'
+              other = shapes.find { |x| x['id'] == j['butt'] }
+              # which face of this wall the other wall sits against
+              mid = Joints.at(other, j['end'] == 'start' ? 0.0 : other['len'], other['depth'] / 2.0)
+              side = Joints.local(sh, mid)[1] > sh['depth'] / 2.0 ? 'in' : 'out'
+              need[end_name] = { 'type' => 'L', 'side' => side, 'by' => j['butt'] }
+            end
+            next if p['corner_need'] == need
+            p['corner_need'] = need
+            set_params(w, p)
+          end
+        end
+      end
+
+      # Corners chosen + O.C. chosen -> lay out and nail every common, end stud
+      # and corner post with precuts from the yard. Returns error or nil.
+      def auto_frame_commons(group)
+        p = params_of(group)
+        p['marks'] = Framing.auto_marks(p, p['oc'])
+        set_params(group, p)
+        rebuild(group)
+        work_slots(params_of(group)).select { |s| s.phase == 'commons' }.each do |s|
+          next if Inspector.slot_done?(s, (params_of(group)['entries'] || {})[s.id])
+          err = nail_supplied(group, s, s.expected['size'], s.expected['length'])
+          return err if err
+        end
+        nil
+      end
+
+      # Pull every common / end stud / corner post and clear the layout.
+      def reset_commons(group)
+        p = params_of(group)
+        e = p['entries'] || {}
+        pulled = []
+        work_slots(p).select { |s| s.phase == 'commons' }.each do |s|
+          next unless e[s.id]
+          (e[s.id]['pieces'] || [e[s.id]]).each { |pc| pulled << pc }
+          e.delete(s.id)
+        end
+        p['entries'] = e
+        p['marks'] = []
+        p.delete('corners')
+        p.delete('oc')
+        p['last_inspection'] = nil
+        p['flags'] = []
+        set_params(group, p)
+        Yard.change do |y|
+          pulled.each { |pc| y['offcuts'] << { 'id' => YardLogic.new_id(y, 'O'), 'size' => pc['size'], 'length' => pc['length'].to_f } }
+        end
+        rebuild(group)
+      end
+
       # ---------- guided stages ----------
 
       # 'plates' | 'openings' | 'units' | 'commons' | 'framed'
@@ -148,7 +217,7 @@ module DMACC
         return 'plates' unless done.call('plates')
         return 'openings' unless p['openings_done']
         return 'units' unless done.call('opening')
-        return 'commons' unless (p['marks'] || []).any? && done.call('commons')
+        return 'commons' unless p['oc'] && done.call('commons')
         'framed'
       end
 
@@ -293,6 +362,7 @@ module DMACC
 
       # Expected members for the whole model, with ideal interlocked double plates.
       def expected_members_all
+        refresh_corner_needs
         table = Project.header_table
         all_walls.flat_map do |w|
           p = params_of(w)

@@ -261,11 +261,30 @@ module DMACC
           next if blocked.any? { |a, b| x + T > a && x < b }
           commons << vslot.call(x, T, :bottom, 'Common Stud', sl, "Common stud, #{where.call(x)}", nil, cdeps, 'commons', true)
         end
+        # Corner posts the building needs at this wall's ends (set by Builder from the joints)
+        (w['corner_need'] || {}).each do |end_name, need|
+          next unless need['type'] == 'L'
+          out << lpost_slot(w, end_name, need['side'], cdeps)
+        end
         # Double top plate goes on last
         all_ids = out.map(&:id) - ['TP:2']
         out.each { |s| s.deps = all_ids if s.id == 'TP:2' }
 
         out.sort_by { |s| [s.kind == :horizontal ? 0 : 1, s.x, s.z] }
+      end
+
+      # L-corner post: a stud turned flat behind the end stud, at the face the
+      # other wall butts into, so that wall's drywall has something to nail to.
+      def lpost_slot(wall, end_name, side, deps)
+        w = DEFAULT_WALL.merge(wall)
+        sl = stud_length(w)
+        width = ACTUAL[w['stud']]
+        x = end_name == 'start' ? T : w['length'].to_f - T - width
+        Slot.new("LPOST:#{end_name}", :post, :bottom, r(x), r(T),
+                 { 'role' => 'Corner Stud', 'size' => w['stud'], 'length' => r(sl) },
+                 "#{end_name == 'start' ? 'Wall start' : 'Wall end'} corner post (L)", nil, nil, deps, 'commons', false).tap do |s|
+          s.anchor = side == 'out' ? :out : :in
+        end
       end
 
       # Where commons may NOT be marked (between kings of an opening).
@@ -289,6 +308,16 @@ module DMACC
       # commons come from the student's own marks instead of the answer.
       def work_slots(wall, table = DEFAULT_HEADER_TABLE, student_layout = false)
         all = slots(wall, table)
+        chosen = wall['corners'] || {}
+        unless chosen.empty?
+          deps = all.find { |s| s.phase == 'commons' }&.deps || []
+          all = all.reject { |s| s.id.start_with?('LPOST:') }
+          chosen.each do |end_name, type|
+            next unless type == 'L'
+            side = ((wall['corner_need'] || {})[end_name] || {})['side'] || 'in'
+            all << lpost_slot(wall, end_name, side, deps)
+          end
+        end
         return all unless student_layout
         keep = all.reject(&:common)
         deps = all.find { |s| s.common || s.label.start_with?('Wall start') }&.deps || []
@@ -298,6 +327,17 @@ module DMACC
       end
 
       # Snap a student's mark to the true layout if within tol.
+      # Stud layout for a chosen O.C. (left edge of each stud, from the wall start),
+      # skipping openings and the end studs.
+      def auto_marks(wall, oc)
+        w = DEFAULT_WALL.merge(wall)
+        len = w['length'].to_f
+        zones = opening_zones(w)
+        layout_marks(w.merge('spacing' => oc.to_f)).select do |x|
+          x >= T && x + T <= len - T && zones.none? { |a, b, _| x + T > a && x < b }
+        end.map { |x| r(x) } # stored like student marks: the stud's left edge
+      end
+
       def snap_mark(wall, x, tol = 0.125)
         exact = layout_marks(DEFAULT_WALL.merge(wall)).find { |m| (m - x).abs <= tol }
         exact || (x * 16).round / 16.0
@@ -318,6 +358,9 @@ module DMACC
         return [] if len <= 0
 
         case slot.kind
+        when :post
+          y = slot.anchor == :out ? 0.0 : d - T
+          [Member.new(role, size, len, slot.x, y, slot.z, ACTUAL[size] || d, T, len)]
         when :vertical
           z = slot.anchor == :top ? slot.z - len : slot.z
           [Member.new(role, size, len, slot.x, 0.0, z, T, width, len)]
@@ -365,6 +408,9 @@ module DMACC
       # (used only to hit-test the cursor - never shown as a length).
       def slot_box(slot)
         l = slot.expected['length'].to_f
+        if slot.kind == :post
+          return [slot.x, slot.z, slot.x + ACTUAL[slot.expected['size']].to_f, slot.z + l]
+        end
         if slot.kind == :vertical
           z0 = slot.anchor == :top ? slot.z - l : slot.z
           [slot.x, z0, slot.x + T, z0 + l]
@@ -414,6 +460,10 @@ module DMACC
         w = DEFAULT_WALL.merge(wall)
         d = depth(w)
         g = 0.375
+        if slot.kind == :post
+          y = slot.anchor == :out ? 0.0 : d - T
+          return Member.new('Layout Mark', '', 0, slot.x, y, slot.z, ACTUAL[slot.expected['size']].to_f, T, g)
+        end
         if slot.kind == :vertical
           z = slot.anchor == :top ? slot.z - g : slot.z
           Member.new('Layout Mark', '', 0, slot.x, 0.0, z, T, d, g)

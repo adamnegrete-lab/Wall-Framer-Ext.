@@ -123,6 +123,41 @@ module DMACC
           issues << build_issue(s, e, bad)
         end
 
+        # Corner assemblies: what the student chose vs what the building needs
+        need = wall['corner_need'] || {}
+        (wall['corners'] || {}).each do |end_name, type|
+          want = (need[end_name] || {})['type'] || 'single'
+          next if want == type
+          where = end_name == 'start' ? 'Wall start' : 'Wall end'
+          by = (need[end_name] || {})['by']
+          if want == 'L'
+            # the expected post is already reported as not filled - say why instead
+            before = issues.size
+            issues.reject! { |i| i.slot_id == "LPOST:#{end_name}" }
+            blank -= before - issues.size
+            issues << Issue.new("LPOST:#{end_name}", "#{where} corner", ['corner'],
+                                'This corner needs an L-corner post.',
+                                "#{by || 'Another wall'} butts into this end - its drywall needs a stud turned flat behind your end stud to nail to.",
+                                { 'role' => 'Corner Stud', 'size' => wall['stud'], 'length' => 0, 'length_text' => 'L-corner post' })
+          else
+            extra += 1
+            issues << Issue.new("LPOST:#{end_name}", "#{where} corner", ['corner'],
+                                'No corner post needed here.',
+                                "Nothing butts into this end#{by ? '' : ' (or this wall butts into the other one)'} - a single end stud is all it takes.",
+                                { 'role' => 'Common Stud', 'size' => wall['stud'], 'length' => 0, 'length_text' => 'single stud' })
+          end
+        end
+        # Wrong O.C.: one clear issue instead of a pile of off-layout marks
+        oc = wall['oc'].to_f
+        if oc > 0 && (oc - wall['spacing'].to_f).abs > 0.01
+          lay = issues.select { |i| i.fields == ['layout'] }
+          issues -= lay
+          fmt = ->(v) { v == v.round ? v.round.to_s : v.to_s }
+          issues << Issue.new('LAYOUT', 'Stud layout', ['layout'],
+                              "Studs are laid out at #{fmt.call(oc)}\" O.C. - this wall type is #{fmt.call(wall['spacing'].to_f)}\" O.C.",
+                              'Check the wall legend on the plans for the stud spacing, then redo the stud layout (right-click the wall).', nil)
+        end
+
         id = wall['id'] || 'Wall'
         total = slots.size + extra
         wrong = issues.size - blank

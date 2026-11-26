@@ -265,6 +265,11 @@ module DMACC
         if Builder.selected_walls.size == 1
           sub.add_item('Frame This Wall') { frame_tool }
           sub.add_item('Openings + Member List...') { frame_wall }
+          sub.add_item('Redo Corners + Stud Layout') do
+            w = Builder.selected_walls.first
+            Dialogs.operation('Redo Stud Layout') { Builder.reset_commons(w) }
+            Dialogs.refresh_yard
+          end
           sub.add_item('Shop Drawing...') { Dialogs.open_shop(Builder.selected_walls.first) }
         end
         sub.add_item('Change Wall Type...') { change_wall_type }
@@ -275,6 +280,7 @@ module DMACC
             Dialogs.operation('Delete Wall') do
               ws.each { |w| w.locked = false; w.erase! }
               Project.update { |d| d['dtp_order'] = (d['dtp_order'] || []) - ids }
+              Builder.refresh_corner_needs
             end
           end
         end

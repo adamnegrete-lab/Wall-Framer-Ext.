@@ -1,5 +1,5 @@
 {
-  "version": "0.7.0",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.7.0.rbz",
-  "notes": "New Wall Framer Tools toolbar in job-site order (Setup, Place Walls, Frame, Tape, Double Plates, Inspect, Shop Drawing, Takeoff). Frame picks up where you left off. Fixed highlights drawing in the wrong place after opening a wall; walls are now locked so they can't be moved by accident."
+  "version": "0.8.0",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.8.0.rbz",
+  "notes": "Stud step: click each end of the wall to choose its corner assembly (single stud or L-corner post), pick 16, 19.2 or 24 O.C., and the studs lay out and nail themselves. Inspection checks corners against how the walls actually meet."
 }
