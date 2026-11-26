@@ -154,6 +154,19 @@ module DMACC
         view.invalidate
       end
 
+      CORNER_HELP = "Corners - which wall runs through?\n\n" \
+                    "At every corner, one wall RUNS THROUGH: its plates go all the way to the outside corner.\n" \
+                    "The other wall BUTTS: it stops against the first wall, so it's shorter by that wall's thickness " \
+                    "(5-1/2\" for a 2x6 wall).\n\n" \
+                    "Check the plan notes for which walls run through. Press Tab before you click the corner to switch - " \
+                    "the wall that runs through is outlined in orange, and the label shows the length you'll get either way."
+
+      def corner_help_once
+        return if Sketchup.read_default('DMACC_WallFramer', 'seen_corner_help', false)
+        Sketchup.write_default('DMACC_WallFramer', 'seen_corner_help', true)
+        UI.messagebox(CORNER_HELP)
+      end
+
       def onLButtonDown(_flags, x, y, view)
         pt = pick(view, x, y)
         if @start.nil?
@@ -234,6 +247,7 @@ module DMACC
         else
           @first ||= g
           @prev = g
+          corner_help_once # before their first corner decision
           @start = pt
           @end = nil
           @lock = nil
@@ -264,21 +278,102 @@ module DMACC
         @ip.draw(view) if @ip.valid? && @snap == :point
         return unless @start && @end
         dir = @end - @start
+        dir.z = 0
         return if dir.length.zero?
         view.line_width = @snap && @snap != :point ? 3 : 2
         view.drawing_color = SNAP_COLORS[@snap] || 'black'
         view.draw(GL_LINES, @start, @end)
-        left = Z_AXIS * dir.normalize
-        left.length = @depth
-        view.drawing_color = 'gray'
-        view.line_stipple = '-'
-        view.draw(GL_LINE_LOOP, [@start, @end, @end.offset(left), @start.offset(left)])
-        view.line_stipple = ''
-        corner = @through ? 'RUNS THROUGH' : 'BUTTS'
-        closing = @first && @end.distance(@first_pt) <= CLOSE_TOL ? '  (closes loop)' : ''
-        label = "  #{@type} on #{@level}  |  #{corner} at corners (Tab)#{closing}"
+
+        pv = preview(@through)
+        # previous wall (and the first wall when closing) near the shared corner
+        pv[:others].each do |o|
+          rect(view, o[:pts], o[:through] ? 'orange' : 'gray', o[:through] ? 4 : 2, !o[:through])
+          view.draw_text(view.screen_coords(o[:label_at]), "  #{o[:label]}") if o[:label]
+        end
+        # this wall, trimmed or extended for its corners
+        rect(view, pv[:pts], @through && pv[:corner] ? 'orange' : 'gray', @through && pv[:corner] ? 4 : 2, !(@through && pv[:corner]))
+
+        closing = pv[:closing] ? '  (closes the loop)' : ''
+        label = "  #{@type}: #{Framing.fmt_len(pv[:len])}#{closing}"
+        if pv[:corner]
+          alt = preview(!@through)
+          label += "  |  #{@through ? 'RUNS THROUGH' : 'BUTTS'} at the corner  (Tab: #{@through ? 'butts' : 'runs through'} = #{Framing.fmt_len(alt[:len])})"
+        end
+        label += '  (far end is set by the next wall)' if pv[:corner] && !pv[:closing]
         label += "  |  #{snap_name}" if @snap && @snap != :point
         view.draw_text(view.screen_coords(@end), label)
+      end
+
+      def rect(view, pts, color, width, dashed)
+        view.line_width = width
+        view.drawing_color = color
+        view.line_stipple = dashed ? '-' : ''
+        view.draw(GL_LINE_LOOP, pts)
+        view.line_stipple = ''
+      end
+
+      # Footprint corners: start point on the face line, unit dir, length, depth (left side)
+      def footprint(o, dir, len, depth)
+        d = Geom::Vector3d.new(dir.x, dir.y, 0)
+        d.normalize!
+        left = Z_AXIS * d
+        left.length = depth
+        e = o.offset(d, len)
+        [o, e, e.offset(left), o.offset(left)]
+      end
+
+      # What the corners will do to this wall and its neighbors if it's placed now.
+      def preview(through_self)
+        dir = @end - @start
+        dir.z = 0
+        nd = dir.normalize
+        start = @start
+        len = dir.length.to_f
+        others = []
+        corner = false
+        closing = @first && @end.distance(@first_pt) <= CLOSE_TOL
+        if @prev
+          pp = Builder.params_of(@prev)
+          pd = @prev.transformation.xaxis
+          dp = Framing.depth(pp)
+          op, who, delta = Corners.adjust([pd.x, pd.y], [nd.x, nd.y], dp, @depth, through_self ? :next : :prev)
+          unless op == :none
+            corner = true
+            plen = pp['length'].to_f
+            if op == :shift_start
+              start = start.offset(nd, delta)
+              len -= delta
+            else
+              plen += delta
+            end
+            po = @prev.transformation.origin
+            tail = [plen, 36.0].min
+            pts = footprint(po.offset(pd, plen - tail), pd, tail, dp)
+            others << { pts: pts, through: !through_self, label_at: @start,
+                        label: through_self ? "this wall runs through - #{pp['id']} butts into it" : "#{pp['id']} runs through - this wall butts into it" }
+          end
+        end
+        if closing
+          fp = Builder.params_of(@first)
+          fd = @first.transformation.xaxis
+          df = Framing.depth(fp)
+          op, who, delta = Corners.adjust([nd.x, nd.y], [fd.x, fd.y], @depth, df, through_self ? :prev : :next)
+          unless op == :none
+            corner = true
+            fo = @first.transformation.origin
+            flen = fp['length'].to_f
+            if op == :extend_end
+              len += delta
+            else
+              fo = fo.offset(fd, delta)
+              flen -= delta
+            end
+            pts = footprint(fo, fd, [flen, 36.0].min, df)
+            others << { pts: pts, through: !through_self, label_at: @end,
+                        label: through_self ? "this wall runs through - #{fp['id']} butts into it" : "#{fp['id']} runs through - this wall butts into it" }
+          end
+        end
+        { pts: footprint(start, nd, len, @depth), len: len, others: others, corner: corner, closing: closing }
       end
 
       def snap_name
@@ -298,8 +393,8 @@ module DMACC
         corner = @through ? 'RUNS THROUGH' : 'BUTTS'
         Sketchup.status_text =
           if @start
-            "#{@type}: click the next corner or type a length. This wall #{corner} at its corners " \
-              '(Tab to switch). Shift locks direction. Click the first point to close. Esc to stop.'
+            "#{@type}: click the next corner or type a length. Tab = this wall #{@through ? 'BUTTS' : 'RUNS THROUGH'} instead " \
+              '(the wall that runs through goes to the outside corner - orange). Shift locks direction. Click the first point to close. Esc to stop.'
           else
             "#{@type} on #{@level}: click the start point. Draw on the face line - framing builds to the LEFT."
           end
