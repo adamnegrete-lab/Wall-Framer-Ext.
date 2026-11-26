@@ -1,5 +1,5 @@
 {
-  "version": "0.6.3",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.6.3.rbz",
-  "notes": "Openings use trade convention: RO height is the opening itself (window sill to header, door subfloor to header) plus head height. Jack tip fixed."
+  "version": "0.7.0",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.7.0.rbz",
+  "notes": "New Wall Framer Tools toolbar in job-site order (Setup, Place Walls, Frame, Tape, Double Plates, Inspect, Shop Drawing, Takeoff). Frame picks up where you left off. Fixed highlights drawing in the wrong place after opening a wall; walls are now locked so they can't be moved by accident."
 }

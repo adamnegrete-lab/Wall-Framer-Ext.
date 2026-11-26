@@ -19,8 +19,11 @@ module DMACC
 
       def activate
         @mode = :guided unless @mode == :dtp
-        @last = {} # last value typed per role - just press Enter to repeat
+        @last ||= {} # last value typed per role - just press Enter to repeat
         super
+        g = Dialogs.focus_group
+        @focus = g && Builder.params_of(g)['id'] # pick up where you left off
+        update_ui
       end
 
       def set_mode(m)
@@ -96,6 +99,7 @@ module DMACC
       # ---------- clicking ----------
 
       def onLButtonDown(_flags, x, y, view)
+        Builder.close_edits
         pick(view, x, y)
         if @mode == :dtp
           click_dtp
@@ -360,6 +364,8 @@ module DMACC
         fg = @focus && Builder.find_wall(@focus)
         if fg
           fp = Builder.params_of(fg)
+          # the wall you're working on
+          draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), fp['height'].to_f], 'blue', 1)
           if %w[openings commons].include?(Builder.stage(fp))
             draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), Framing::T], 'blue', @mark ? 3 : 2)
           end

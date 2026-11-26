@@ -330,6 +330,10 @@ module DMACC
           d.show
         end
 
+        def tool
+          @tool
+        end
+
         def activate_tool
           klass = Project.settings['guided'] ? GuidedTool : InstallTool
           @tool = klass.new unless @tool.instance_of?(klass)

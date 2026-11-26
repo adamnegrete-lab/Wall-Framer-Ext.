@@ -130,6 +130,7 @@ module DMACC
           end
           g.entities.clear!
           g.layer = Builder.tag(model, TAG)
+          Builder.lock(g)
           ents = g.entities
           layout(y).each do |id, a, _b, label, p|
             case id

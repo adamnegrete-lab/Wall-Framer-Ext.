@@ -266,3 +266,20 @@ module Sketchup
   end
 end
 module UI; def self.start_timer(*) = nil; end
+module Sketchup
+  class Model
+    attr_accessor :active_path
+    def close_active = (@active_path = @active_path&.[](0..-2); @active_path = nil if @active_path&.empty?)
+  end
+  class Group; attr_accessor :locked; end
+  def self.send_action(a) = ($action = a)
+end
+module UI
+  def self.toolbar_names = []
+  class Toolbar; def show = nil; end
+end
+module Sketchup
+  class Model
+    def select_tool(t) = (@tool = t; t.activate if t.respond_to?(:activate))
+  end
+end

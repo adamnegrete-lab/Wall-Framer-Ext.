@@ -20,6 +20,25 @@ module DMACC
 
       module_function
 
+      # ---------- editing context ----------
+
+      # If a student double-clicked into a wall (or anything), SketchUp reports
+      # positions relative to that open group. Framing tools work from the
+      # model level, so close any open group first.
+      def close_edits
+        m = Sketchup.active_model
+        10.times do
+          break if m.active_path.nil? || m.active_path.empty?
+          m.close_active
+        end
+      rescue StandardError
+        nil
+      end
+
+      def lock(group)
+        group.locked = true if group.respond_to?(:locked=)
+      end
+
       # ---------- finding walls ----------
 
       def wall?(ent)
@@ -461,6 +480,7 @@ module DMACC
         add_chalk_lines(model, group.entities, params)
         add_plate_marks(model, group.entities, params) if Inspector.complete?(entries['BP'])
         add_start_arrow(model, group.entities, params)
+        lock(group) # can't be opened or nudged by accident; Tape Measure still snaps to it
         group
       end
 

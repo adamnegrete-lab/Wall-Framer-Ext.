@@ -25,6 +25,7 @@ module DMACC
       end
 
       def activate
+        Builder.close_edits
         @ip = Sketchup::InputPoint.new
         reset_chain
         update_ui

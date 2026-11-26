@@ -16,6 +16,7 @@ module DMACC
       attr_reader :mode
 
       def activate
+        Builder.close_edits
         @target = nil   # [group, slot, params]
         @pile = nil     # [id, label, t]
         @mark = nil     # [group, params, x] in layout / opening mode

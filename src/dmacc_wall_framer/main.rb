@@ -197,16 +197,54 @@ module DMACC
       end
     end
 
-    # ---------- menus / toolbar ----------
+    # ---------- toolbar actions (in job-site order) ----------
+    class << self
+      def frame_tool
+        Builder.close_edits
+        return UI.messagebox('Place some walls first.') if Builder.all_walls.empty?
+        if (w = Builder.selected_walls.first)
+          Dialogs.focus_wall(Builder.params_of(w)['id'])
+        end
+        Dialogs.activate_tool
+        Dialogs.tool.set_mode('nail') if Dialogs.tool.respond_to?(:set_mode)
+      end
+
+      def tape_tool
+        Builder.close_edits
+        Sketchup.send_action('selectMeasureTool:')
+        Sketchup.status_text = 'Tape Measure: click the Frame tool when you are done measuring to pick up where you left off.'
+      end
+
+      def dtp_tool
+        Builder.close_edits
+        return UI.messagebox('Place some walls first.') if Builder.all_walls.empty?
+        Dialogs.activate_tool
+        Dialogs.tool.set_mode('dtp')
+        Dialogs.top_view
+      end
+
+      def inspect_tool
+        Builder.close_edits
+        g = Dialogs.focus_group or return UI.messagebox('Place some walls first.')
+        Dialogs.operation('Request Inspection') { Dialogs.inspect_group(g) }
+        Dialogs.open_yard
+        Dialogs.refresh_yard
+        Dialogs.refresh_frame
+      end
+
+      def shop_tool
+        g = Dialogs.focus_group or return UI.messagebox('Place some walls first.')
+        Dialogs.open_shop(g)
+      end
+
+    end
+
+    # ---------- menus ----------
     unless file_loaded?(__FILE__)
       menu = UI.menu('Extensions').add_submenu('Wall Framer')
-      menu.add_item('1. Project Setup (levels, wall types)...') { Dialogs.open_setup }
-      menu.add_item('2. Place Walls...') { draw_wall }
-      menu.add_item('3. Openings + Member List for Selected Wall...') { frame_wall }
-      menu.add_item('4. Framing (yard, saw, install tool)...') { Dialogs.open_yard; Dialogs.activate_tool }
-      menu.add_item('   Shop Drawing for Selected Wall...') { (w = Builder.selected_walls).size == 1 ? Dialogs.open_shop(w.first) : UI.messagebox('Select one wall first.') }
-      menu.add_item('5. Takeoff...') { Dialogs.open_takeoff }
-      menu.add_separator
+      menu.add_item('Project Setup...') { Dialogs.open_setup }
+      menu.add_item('Framing Panel') { Dialogs.open_yard }
+      menu.add_item('Openings + Member List (selected wall)...') { frame_wall }
       menu.add_item('Change Wall Type of Selected...') { change_wall_type }
       menu.add_item('Export Auto Cut List (CSV)...') { export_cut_list }
       menu.add_separator
@@ -225,20 +263,40 @@ module DMACC
         next unless Builder.selected_walls.size >= 1
         sub = cm.add_submenu('Wall Framer')
         if Builder.selected_walls.size == 1
-          sub.add_item('Frame This Wall (pop-ups)') { Dialogs.open_yard; Dialogs.activate_tool }
+          sub.add_item('Frame This Wall') { frame_tool }
           sub.add_item('Openings + Member List...') { frame_wall }
           sub.add_item('Shop Drawing...') { Dialogs.open_shop(Builder.selected_walls.first) }
         end
         sub.add_item('Change Wall Type...') { change_wall_type }
+        sub.add_item('Delete Selected Wall(s)...') do
+          ws = Builder.selected_walls
+          ids = ws.map { |w| Builder.params_of(w)['id'] }
+          if UI.messagebox("Delete #{ids.join(', ')}? Its framing goes with it.", MB_YESNO) == IDYES
+            Dialogs.operation('Delete Wall') do
+              ws.each { |w| w.locked = false; w.erase! }
+              Project.update { |d| d['dtp_order'] = (d['dtp_order'] || []) - ids }
+            end
+          end
+        end
       end
+      file_loaded(__FILE__)
+    end
 
-      tb = UI::Toolbar.new('Wall Framer')
+    # ---------- the toolbar: the job-site sequence, left to right ----------
+    # (its own guard, so "Reload After Update" can add it without a restart)
+    unless file_loaded?('dmacc_wf_toolbar_v2')
+      UI.toolbar('Wall Framer').hide if UI.respond_to?(:toolbar_names) && UI.toolbar_names.include?('Wall Framer')
+      tb = UI::Toolbar.new('Wall Framer Tools')
       icons = File.join(__dir__, 'icons')
-      [['Project Setup', 'setup', proc { Dialogs.open_setup }],
+      [['Project Setup - levels and wall types', 'setup', proc { Dialogs.open_setup }],
        ['Place Walls', 'wall', proc { draw_wall }],
-       ['Frame Selected Wall', 'frame', proc { frame_wall }],
-       ['Framing (yard, saw, install tool)', 'yard', proc { Dialogs.open_yard; Dialogs.activate_tool }],
-       ['Takeoff', 'takeoff', proc { Dialogs.open_takeoff }]].each do |label, icon, blk|
+       ['Frame - pick up where you left off (click a wall to switch)', 'frame', proc { frame_tool }],
+       ['Tape Measure (click Frame when done)', 'tape', proc { tape_tool }],
+       ['Double Top Plates (top view)', 'dtp', proc { dtp_tool }],
+       ['Request Inspection', 'inspect', proc { inspect_tool }],
+       ['Shop Drawing', 'shop', proc { shop_tool }],
+       ['Takeoff', 'takeoff', proc { Dialogs.open_takeoff }],
+       ['Framing Panel', 'yard', proc { Dialogs.open_yard }]].each do |label, icon, blk|
         cmd = UI::Command.new(label, &blk)
         cmd.tooltip = label
         cmd.status_bar_text = label
@@ -246,8 +304,8 @@ module DMACC
         cmd.large_icon = File.join(icons, "#{icon}_32.png")
         tb.add_item(cmd)
       end
-      tb.restore
-      file_loaded(__FILE__)
+      tb.show
+      file_loaded('dmacc_wf_toolbar_v2')
     end
   end
 end
