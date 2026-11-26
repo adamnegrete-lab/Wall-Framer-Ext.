@@ -29,7 +29,7 @@ module DMACC
       LENGTH_HINTS = {
         'Common Stud' => 'Stud cut length = overall wall height minus the bottom plate and the top plate(s) (1-1/2" each).',
         'King Stud' => 'A king runs the same length as a common stud.',
-        'Jack Stud' => 'Jack cut length = rough opening height minus the bottom plate.',
+        'Jack Stud' => 'Jack cut length = head height (bottom of the header, from the subfloor) minus the bottom plate.',
         'Cripple Stud' => 'Above a header: space between the top of the header and the underside of the top plate. Below a sill: top of the bottom plate to the underside of the rough sill.',
         'Header' => 'Header length = rough opening width plus one jack (1-1/2") on each side.',
         'Rough Sill' => 'Rough sill length = rough opening width (it fits between the jacks).',

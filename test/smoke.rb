@@ -38,7 +38,7 @@ fd.fire('ready')
 fs = fd.last('load')
 check(fs['wall']['id'] == 'W-101' && fs['slots'].size == 16, "frame state slots=#{fs['slots'].size}")
 fd.fire('save_openings', { 'pos_mode' => 'left', 'openings' => [
-  { 'mark' => 'w1', 'type' => 'Window', 'x_text' => '30', 'width_text' => "3'", 'height_text' => '82 1/2', 'sill_text' => '42', 'header' => 'Not shown' },
+  { 'mark' => 'w1', 'type' => 'Window', 'x_text' => '30', 'width_text' => "3'", 'height_text' => '40 1/2', 'sill_text' => '82 1/2', 'header' => 'Not shown' },
   { 'mark' => 'D1', 'type' => 'Door', 'x_text' => "9' 2\"", 'width_text' => '38', 'height_text' => '82-1/2', 'sill_text' => '', 'header' => '2x10' }]})
 check(fd.last('openingErrors') == [], "openings saved #{fd.last('openingErrors')}")
 fs = fd.last('load')

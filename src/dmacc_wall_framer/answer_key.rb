@@ -78,15 +78,15 @@ module DMACC
           if (ko['width'] - so['width']).abs <= SIZE_TOL then op_pts += 1
           else checks << "RO width #{Framing.fmt_len(so['width'])} (key #{Framing.fmt_len(ko['width'])})"
           end
-          if (ko['height'] - so['height']).abs <= SIZE_TOL then op_pts += 1
-          else checks << "RO height #{Framing.fmt_len(so['height'])} (key #{Framing.fmt_len(ko['height'])})"
+          if (Framing.ro_height(ko) - Framing.ro_height(so)).abs <= SIZE_TOL then op_pts += 1
+          else checks << "RO height #{Framing.fmt_len(Framing.ro_height(so))} (key #{Framing.fmt_len(Framing.ro_height(ko))})"
           end
-          sill_ok = ko['type'] != 'Window' || (ko['sill'].to_f - so['sill'].to_f).abs <= SIZE_TOL
+          sill_ok = ko['type'] != 'Window' || (ko['height'].to_f - so['height'].to_f).abs <= SIZE_TOL
           hdr_ok = ko['header_size'] == so['header_size']
           if sill_ok && hdr_ok && ko['type'] == so['type'] then op_pts += 1
           else
             checks << "type #{so['type']} (key #{ko['type']})" unless ko['type'] == so['type']
-            checks << "sill #{Framing.fmt_len(so['sill'].to_f)} (key #{Framing.fmt_len(ko['sill'].to_f)})" unless sill_ok
+            checks << "head height #{Framing.fmt_len(so['height'].to_f)} (key #{Framing.fmt_len(ko['height'].to_f)})" unless sill_ok
             checks << "header #{so['header_size']} (key #{ko['header_size']})" unless hdr_ok
           end
           notes << { 'area' => 'Openings', 'ok' => false, 'text' => "#{so['mark']}: #{checks.join('; ')}." } unless checks.empty?

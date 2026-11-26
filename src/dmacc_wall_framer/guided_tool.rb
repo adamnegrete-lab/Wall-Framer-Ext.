@@ -9,7 +9,7 @@ module DMACC
         'Bottom Plate' => 'measure the chalk line on the deck',
         'Top Plate' => 'same as the bottom plate',
         'King Stud' => 'kings run plate to plate',
-        'Jack Stud' => 'RO height minus the bottom plate',
+        'Jack Stud' => 'head height minus the bottom plate',
         'Header' => 'measure between the kings',
         'Rough Sill' => 'fits between the jacks',
         'Common Stud' => 'same as your kings',
@@ -243,8 +243,9 @@ module DMACC
       def opening_popup(g, center = nil)
         p = Builder.params_of(g)
         prompts = ['Centerline from wall start (tape hooked on the arrow end)', 'Mark (from the plans)', 'Type',
-                   'Rough opening width', 'RO top height (from subfloor)', 'Sill height (windows only)', 'Header (per plans)']
-        vals = [center ? Framing.fmt_len(center) : '', '', 'Window', '', '', '', 'Not shown']
+                   'Rough opening width', 'Rough opening height (window: sill to header / door: subfloor to header)',
+                   'Head height - bottom of header from subfloor (windows)', 'Header (per plans)']
+        vals = [center ? Framing.fmt_len(center) : '', '', 'Window', '', '', @last['head'] || '82 1/2', 'Not shown']
         lists = ['', '', 'Window|Door', '', '', '', (['Not shown'] + Framing::SIZES).join('|')]
         title = "Lay out an opening - #{p['id']}"
         loop do
@@ -255,18 +256,19 @@ module DMACC
           res = res[1..]
           w = Framing.parse_len(res[2])
           h = Framing.parse_len(res[3])
-          sill = res[1] == 'Window' ? Framing.parse_len(res[4]) : 0.0
+          head = res[1] == 'Window' ? Framing.parse_len(res[4]) : h
           errs << "Couldn't read the centerline distance." unless center && center > 0
           errs << 'Enter the mark from the plans (W1, D2...).' if res[0].strip.empty?
           errs << "Couldn't read the RO width." unless w && w > 0
           errs << "Couldn't read the RO height." unless h && h > 0
-          errs << "Couldn't read the sill height." if res[1] == 'Window' && sill.nil?
+          errs << "Couldn't read the head height." if res[1] == 'Window' && head.nil?
           mark = res[0].strip.upcase
           used = Builder.all_walls.flat_map { |x| Builder.params_of(x)['openings'].map { |o| o['mark'] } }
           errs << "#{mark} is already used." if used.include?(mark)
           if errs.empty?
-            op = { 'mark' => mark, 'type' => res[1], 'x' => center - w / 2.0, 'width' => w, 'height' => h,
-                   'sill' => sill || 0.0, 'header' => res[5] }
+            op = { 'mark' => mark, 'type' => res[1], 'x' => center - w / 2.0, 'width' => w,
+                   'header' => res[5] }.merge(Framing.opening_from_ro(res[1], h, head))
+            @last['head'] = res[4] if res[1] == 'Window'
             test = p.merge('openings' => p['openings'] + [op])
             errs = Framing.validate(test, Project.header_table)
           end

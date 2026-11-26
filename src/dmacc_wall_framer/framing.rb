@@ -61,6 +61,22 @@ module DMACC
         header_min_for(opening['width'].to_f, table)
       end
 
+      # Trade convention: a window's RO height is the opening itself (sill to
+      # header); a door's RO height is measured from the subfloor. Internally
+      # 'height' = head height (bottom of header) and 'sill' = top of rough sill.
+      def ro_height(o)
+        o['type'] == 'Window' ? o['height'].to_f - o['sill'].to_f : o['height'].to_f
+      end
+
+      # From what's on the plans: RO width x RO height + head height.
+      def opening_from_ro(type, ro_h, head)
+        if type == 'Window'
+          { 'height' => head.to_f, 'sill' => head.to_f - ro_h.to_f }
+        else
+          { 'height' => ro_h.to_f, 'sill' => 0.0 }
+        end
+      end
+
       def stud_length(w)
         w['height'].to_f - T * (1 + w['top_plates'].to_i)
       end
@@ -102,11 +118,11 @@ module DMACC
           errs << "#{name}: too close to the wall end - no room for king + jack." if right > len - T
           hh = ACTUAL[header_for(o, table)]
           if o['height'].to_f + hh > stud_top + 1e-3
-            errs << "#{name}: RO height + #{header_for(o, table)} header won't fit under the top plate."
+            errs << "#{name}: head height + #{header_for(o, table)} header won't fit under the top plate."
           end
           if o['type'] == 'Window'
-            errs << "#{name}: sill height is too low." if o['sill'].to_f < 2 * T + 1
-            errs << "#{name}: sill must be below the RO height." if o['sill'].to_f >= o['height'].to_f
+            errs << "#{name}: RO height is too tall for that head height - the sill would be at #{fmt_in(o['sill'])}, down at the bottom plate." if o['sill'].to_f < 2 * T + 1
+            errs << "#{name}: RO height must be more than 0." if o['sill'].to_f >= o['height'].to_f
           end
           nxt = ops[i + 1]
           next unless nxt

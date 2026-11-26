@@ -103,8 +103,8 @@ module DMACC
             'openings' => p['openings'].map do |o|
               { 'mark' => o['mark'], 'type' => o['type'],
                 'x_text' => len_text(@prefill ? o['x'].to_f + o['width'].to_f / 2.0 : o['x']),
-                'width_text' => len_text(o['width']), 'height_text' => len_text(o['height']),
-                'sill_text' => o['type'] == 'Window' ? len_text(o['sill']) : '', 'header' => o['header'] || 'Not shown' }
+                'width_text' => len_text(o['width']), 'height_text' => len_text(Framing.ro_height(o)),
+                'sill_text' => o['type'] == 'Window' ? len_text(o['height']) : '', 'header' => o['header'] || 'Not shown' }
             end,
             'slots' => order.map do |sl|
               e = entries[sl.id]
@@ -141,10 +141,10 @@ module DMACC
             w = parse_required(o['width_text'], "#{name} RO width", errs)
             h = parse_required(o['height_text'], "#{name} RO height", errs)
             x = parse_required(o['x_text'], "#{name} position", errs)
-            sill = o['type'] == 'Window' ? parse_required(o['sill_text'], "#{name} sill height", errs) : 0.0
+            head = o['type'] == 'Window' ? parse_required(o['sill_text'], "#{name} head height", errs) : h
             x -= w / 2.0 if x && w && data['pos_mode'] == 'center'
             { 'mark' => o['mark'].to_s.strip.upcase, 'type' => o['type'], 'x' => x, 'width' => w,
-              'height' => h, 'sill' => sill, 'header' => o['header'] }
+              'header' => o['header'] }.merge(h && head ? Framing.opening_from_ro(o['type'], h, head) : {})
           end
           # marks must be unique across the whole model (they match the schedules)
           others = Builder.all_walls.reject { |w| w == g }.flat_map { |w| Builder.params_of(w)['openings'].map { |o| o['mark'] } }

@@ -1,5 +1,5 @@
 {
-  "version": "0.6.2",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.6.2.rbz",
-  "notes": "Built-in tape and pencil marks for laying out openings; update address built in."
+  "version": "0.6.3",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.6.3.rbz",
+  "notes": "Openings use trade convention: RO height is the opening itself (window sill to header, door subfloor to header) plus head height. Jack tip fixed."
 }

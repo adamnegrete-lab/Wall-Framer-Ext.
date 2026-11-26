@@ -28,7 +28,7 @@ UI.answers[:inputbox] = lambda do |prompts, vals, lists, title|
   r << s.plies.to_s if x['role'] == 'Header'
   r
 end
-@ops = [["4'", 'W1', 'Window', '36', '82 1/2', '34 1/2', '2x8'], ["11'", 'D1', 'Door', '38', '82 1/2', '', '2x10']]
+@ops = [["4'", 'W1', 'Window', '36', '48', '82 1/2', '2x8'], ["11'", 'D1', 'Door', '38', '82 1/2', '', '2x10']]
 @marks = %w[16 80 96 160 176]
 UI.answers[:msg] = ->(m) { m.include?('Another opening') ? (@ops.empty? ? IDNO : IDYES) : IDYES }
 click = ->(s) { x0, z0, x1, z1 = Framing.slot_box(s); face.((x0 + x1) / 2, (z0 + z1) / 2); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
@@ -86,4 +86,10 @@ p = Builder.params_of(g)
 r = Inspector.inspect_wall(p, p['entries'], student_layout: true, table: Project.header_table)
 chk(r['issues'].any? { |i| i.message.include?('too short') }, 'wrong jack length caught by inspection')
 puts "   pop-ups: #{popups.size} (sample: #{popups.first(4).join(' | ')})"
+puts($f ? 'SOME FAILED' : 'ALL PASSED')
+# trade convention: window RO 36 x 48 with 82-1/2 head -> sill at 34-1/2
+w1 = Builder.params_of(g)['openings'].find { |o| o['mark'] == 'W1' }
+chk(w1['height'] == 82.5 && w1['sill'] == 34.5 && Framing.ro_height(w1) == 48.0, "W1 RO 36x48, head 82-1/2 -> sill #{w1['sill']}")
+d1 = Builder.params_of(g)['openings'].find { |o| o['mark'] == 'D1' }
+chk(d1['height'] == 82.5 && Framing.ro_height(d1) == 82.5, 'door RO height measured from the subfloor')
 puts($f ? 'SOME FAILED' : 'ALL PASSED')
