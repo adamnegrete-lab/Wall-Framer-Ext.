@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Project Setup</title>
+<style>
+  :root { --ink:#1d1d1d; --mute:#666; --line:#ccc; --bg:#f6f6f4; --err:#b3261e; --errbg:#fdecea; }
+  * { box-sizing: border-box; }
+  body { font: 13px/1.4 "Segoe UI", system-ui, sans-serif; color: var(--ink); margin: 0; }
+  header { padding: 10px 14px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; }
+  main { padding: 6px 14px 70px; }
+  h2 { font-size: 14px; margin: 18px 0 4px; padding-bottom: 3px; border-bottom: 1px solid var(--line); }
+  .note { color: var(--mute); font-size: 12px; margin: 4px 0 8px; }
+  .row { display: grid; gap: 6px; align-items: center; padding: 4px 2px; border-bottom: 1px solid #eee; }
+  .lvl { grid-template-columns: 1fr 160px 26px; }
+  .wt { grid-template-columns: 1fr 70px 70px 120px 60px 100px 115px 26px; }
+  .hdr { grid-template-columns: 160px 100px 26px; }
+  .head { font-weight: 600; color: var(--mute); font-size: 12px; border-bottom: 1px solid var(--line); }
+  select, input { font: inherit; padding: 3px 5px; border: 1px solid #aaa; border-radius: 3px; width: 100%; }
+  input[type=checkbox] { width: auto; }
+  .icon { cursor: pointer; border: none; background: none; font-size: 14px; }
+  button.btn { font: inherit; padding: 6px 12px; border: 1px solid #888; background: #fff; border-radius: 4px; cursor: pointer; }
+  button.primary { background: #1d1d1d; color: #fff; border-color: #1d1d1d; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); padding: 8px 14px; display: flex; gap: 8px; align-items: center; }
+  .bar .spacer { flex: 1; }
+  .box { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; background: #fafafa; }
+  .set { display: grid; grid-template-columns: 260px 1fr; gap: 6px 10px; align-items: center; }
+  .err { background: var(--errbg); color: var(--err); padding: 6px 10px; border-radius: 4px; }
+  .locked input, .locked select, .locked button.icon, .locked .add { pointer-events: none; opacity: .6; }
+</style>
+</head>
+<body>
+<header><h1>Project Setup - levels, wall types, instructor settings</h1></header>
+<main>
+  <div id="errors"></div>
+  <div id="lockmsg" class="note"></div>
+
+  <div id="setup">
+    <h2>Levels (datums)</h2>
+    <p class="note">Every wall is hosted on a level. Elevation is the top of subfloor for that level. Changing an elevation moves every wall on that level.</p>
+    <div class="row lvl head"><div>Level name</div><div>Elevation</div><div></div></div>
+    <div id="levels"></div>
+    <button class="btn add" id="add-level">+ Add level</button>
+
+    <h2>Wall types</h2>
+    <p class="note">Set these from the plans' wall legend. Editing a type updates every wall of that type.</p>
+    <div class="row wt head"><div>Type name</div><div>Studs</div><div>O.C.</div><div>Overall height</div><div>Top plates</div><div>Function</div><div>Bearing</div><div></div></div>
+    <div id="types"></div>
+    <button class="btn add" id="add-type">+ Add wall type</button>
+  </div>
+
+  <div id="instructor">
+    <h2>Header table (used when plans don't call out a header)</h2>
+    <p class="note">Rough opening widths up to this size get this header. This default is a simplified placeholder - replace it with the table your class uses (IRC R602.7 for the assignment's loads).</p>
+    <div class="row hdr head"><div>Max RO width</div><div>Header</div><div></div></div>
+    <div id="hdrs"></div>
+    <button class="btn" id="add-hdr">+ Add row</button>
+
+    <h2>Instructor settings</h2>
+    <div class="box set">
+      <label for="feedback">Inspection feedback</label><select id="feedback"></select>
+      <label for="takeoff_feedback">Takeoff feedback</label>
+      <select id="takeoff_feedback">
+        <option value="count">Score only</option>
+        <option value="coach">Flag wrong / short / extra lines (no answers)</option>
+        <option value="fix">Show correct quantities and missing items</option>
+      </select>
+      <label for="auto_cutlist">Students can export the auto cut list</label><input type="checkbox" id="auto_cutlist">
+      <label for="students_edit_setup">Students can edit levels and wall types</label><input type="checkbox" id="students_edit_setup">
+      <label for="show_layout_marks">Show gray layout marks for open locations</label><input type="checkbox" id="show_layout_marks">
+      <label for="shop_letters">Shop drawing shows X / K / J / C letters</label><input type="checkbox" id="shop_letters">
+      <label for="shop_cutlist">Shop drawing includes the cut list</label><input type="checkbox" id="shop_cutlist">
+      <label for="shop_elevation">Shop drawing draws every member (off = plates and marks only)</label><input type="checkbox" id="shop_elevation">
+      <label for="kerf">Saw kerf</label><input id="kerf" style="width:100px">
+      <label for="jobsite_order">Enforce job-site order (plates, openings, opening units, commons, double plate)</label><input type="checkbox" id="jobsite_order">
+      <label for="student_layout">Students lay out their own common studs</label><input type="checkbox" id="student_layout">
+      <label for="guided">Pop-up framing (click a piece, enter its length; lumber pulled automatically)</label><input type="checkbox" id="guided">
+      <label for="popup_tips">Pop-ups say how to measure each piece (not the answer)</label><input type="checkbox" id="popup_tips">
+      <label for="tape_readout">Show a tape reading while marking (off = students use Tape Measure)</label><input type="checkbox" id="tape_readout">
+    </div>
+    <h2>Instructor password</h2>
+    <p class="note">Setting a password locks these settings in this model. Save the model as your assignment file. (This stops casual changes - it is not real security.)</p>
+    <div class="box set">
+      <label for="pw1">New password (blank = remove lock)</label><input type="password" id="pw1">
+      <label for="pw2">Repeat password</label><input type="password" id="pw2">
+    </div>
+    <p><button class="btn" id="set-pw">Set password</button></p>
+  </div>
+
+  <div id="login" style="display:none">
+    <h2>Instructor login</h2>
+    <div class="box set">
+      <label for="pw">Password</label><input type="password" id="pw">
+    </div>
+    <p><button class="btn" id="unlock">Unlock</button></p>
+  </div>
+</main>
+<div class="bar">
+  <span id="status" class="note"></span><span class="spacer"></span>
+  <button class="btn" id="close">Close</button>
+  <button class="btn primary" id="save">Save setup</button>
+</div>
+<script>
+var S = null;
+function $(id) { return document.getElementById(id); }
+function el(tag, attrs, kids) {
+  var e = document.createElement(tag);
+  for (var k in (attrs || {})) {
+    if (k === 'text') e.textContent = attrs[k];
+    else if (k.slice(0, 2) === 'on') e.addEventListener(k.slice(2), attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  }
+  (kids || []).forEach(function (c) { e.appendChild(c); });
+  return e;
+}
+function options(sel, list, value) {
+  list.forEach(function (v) {
+    var val = Array.isArray(v) ? v[0] : v, txt = Array.isArray(v) ? v[1] : v;
+    var o = el('option', { value: val, text: txt }); if (String(val) === String(value)) o.selected = true; sel.appendChild(o);
+  });
+  return sel;
+}
+function rm(r) { return el('button', { 'class': 'icon', title: 'Remove', text: '✕', onclick: function () { r.remove(); } }); }
+function call(n, p) { $('status').textContent = 'Working...'; sketchup[n](JSON.stringify(p || {})); }
+
+function levelRow(l) {
+  var r = el('div', { 'class': 'row lvl' });
+  r.appendChild(el('input', { 'data-k': 'name', value: l.name || '', 'aria-label': 'Level name' }));
+  r.appendChild(el('input', { 'data-k': 'orig', type: 'hidden', value: l.name || '' }));
+  r.appendChild(el('input', { 'data-k': 'elev_text', value: l.elev_text || '0"', 'aria-label': 'Elevation' }));
+  r.appendChild(rm(r));
+  return r;
+}
+function typeRow(t) {
+  var r = el('div', { 'class': 'row wt' });
+  r.appendChild(el('input', { 'data-k': 'name', value: t.name || '', 'aria-label': 'Type name' }));
+  r.appendChild(el('input', { 'data-k': 'orig', type: 'hidden', value: t.name || '' }));
+  r.appendChild(options(el('select', { 'data-k': 'stud' }), ['2x4', '2x6'], t.stud || '2x4'));
+  r.appendChild(options(el('select', { 'data-k': 'spacing' }), [['12', '12"'], ['16', '16"'], ['19.2', '19.2"'], ['24', '24"']], String(t.spacing || 16)));
+  r.appendChild(el('input', { 'data-k': 'height_text', value: t.height_text || "8' 1-1/8\"", 'aria-label': 'Overall height' }));
+  r.appendChild(options(el('select', { 'data-k': 'top_plates' }), ['1', '2'], String(t.top_plates || 2)));
+  r.appendChild(options(el('select', { 'data-k': 'function' }), ['Exterior', 'Interior'], t['function'] || 'Exterior'));
+  r.appendChild(options(el('select', { 'data-k': 'bearing' }), [['true', 'Bearing'], ['false', 'Non-bearing']], String(!!t.bearing)));
+  r.appendChild(rm(r));
+  return r;
+}
+function hdrRow(h) {
+  var r = el('div', { 'class': 'row hdr' });
+  r.appendChild(el('input', { 'data-k': 'width_text', value: h.width_text || '', 'aria-label': 'Max RO width' }));
+  r.appendChild(options(el('select', { 'data-k': 'size' }), S.sizes, h.size || '2x8'));
+  r.appendChild(rm(r));
+  return r;
+}
+function read(sel) {
+  var out = [];
+  document.querySelectorAll(sel + ' .row').forEach(function (r) {
+    var o = {}; r.querySelectorAll('[data-k]').forEach(function (f) { o[f.dataset.k] = f.value; }); out.push(o);
+  });
+  return out;
+}
+$('add-level').onclick = function () { $('levels').appendChild(levelRow({})); };
+$('add-type').onclick = function () { $('types').appendChild(typeRow({})); };
+$('add-hdr').onclick = function () { $('hdrs').appendChild(hdrRow({})); };
+$('close').onclick = function () { sketchup.close(''); };
+$('unlock').onclick = function () { call('unlock', { pw: $('pw').value }); $('pw').value = ''; };
+$('set-pw').onclick = function () {
+  if ($('pw1').value !== $('pw2').value) { $('status').textContent = "Passwords don't match."; return; }
+  call('set_password', { pw: $('pw1').value }); $('pw1').value = ''; $('pw2').value = '';
+};
+$('save').onclick = function () {
+  var p = { levels: read('#levels'), wall_types: read('#types') };
+  if (S.instructor) {
+    p.header_table = read('#hdrs');
+    p.settings = {
+      feedback: $('feedback').value, takeoff_feedback: $('takeoff_feedback').value,
+      auto_cutlist: $('auto_cutlist').checked, students_edit_setup: $('students_edit_setup').checked,
+      show_layout_marks: $('show_layout_marks').checked,
+      shop_letters: $('shop_letters').checked, shop_cutlist: $('shop_cutlist').checked,
+      shop_elevation: $('shop_elevation').checked, kerf_text: $('kerf').value,
+      jobsite_order: $('jobsite_order').checked, guided: $('guided').checked, popup_tips: $('popup_tips').checked, student_layout: $('student_layout').checked, tape_readout: $('tape_readout').checked
+    };
+  }
+  call('save_setup', p);
+};
+
+function load(state) {
+  S = state;
+  $('levels').innerHTML = ''; state.levels.forEach(function (l) { $('levels').appendChild(levelRow(l)); });
+  $('types').innerHTML = ''; state.wall_types.forEach(function (t) { $('types').appendChild(typeRow(t)); });
+  $('hdrs').innerHTML = ''; state.header_table.forEach(function (h) { $('hdrs').appendChild(hdrRow(h)); });
+  $('feedback').innerHTML = ''; options($('feedback'), state.feedback_levels, state.settings.feedback);
+  $('takeoff_feedback').value = state.settings.takeoff_feedback;
+  ['auto_cutlist', 'students_edit_setup', 'show_layout_marks', 'shop_letters', 'shop_cutlist', 'shop_elevation', 'jobsite_order', 'student_layout', 'tape_readout', 'guided', 'popup_tips'].forEach(function (k) { $(k).checked = !!state.settings[k]; });
+  $('kerf').value = state.kerf_text;
+  $('instructor').style.display = state.instructor ? '' : 'none';
+  $('login').style.display = (!state.instructor && state.locked) ? '' : 'none';
+  var canEdit = state.instructor || state.settings.students_edit_setup;
+  $('setup').classList.toggle('locked', !canEdit);
+  $('save').style.display = canEdit ? '' : 'none';
+  $('lockmsg').textContent = state.locked
+    ? (state.instructor ? 'Instructor unlocked for this session.' : 'Settings are locked by your instructor.' + (canEdit ? '' : ' Levels and wall types are read-only.'))
+    : 'No instructor password set - anyone can change settings.';
+  $('errors').innerHTML = '';
+  $('status').textContent = '';
+}
+function showErrors(errs) {
+  $('errors').innerHTML = '';
+  if (!errs.length) { $('status').textContent = 'Saved.'; return; }
+  var d = el('div', { 'class': 'err' }, [el('strong', { text: 'Not saved:' })]);
+  var ul = el('ul'); errs.forEach(function (e) { ul.appendChild(el('li', { text: e })); }); d.appendChild(ul);
+  $('errors').appendChild(d); $('status').textContent = '';
+}
+function setStatus(t) { $('status').textContent = t; }
+window.onload = function () { sketchup.ready(''); };
+</script>
+</body>
+</html>

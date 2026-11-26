@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Framing</title>
+<style>
+  :root { --ink:#1d1d1d; --mute:#666; --line:#ccc; --bg:#f6f6f4; --err:#b3261e; --errbg:#fdecea; --ok:#1e6b34; --okbg:#e8f3ea; --hand:#fff5c2; }
+  * { box-sizing: border-box; }
+  body { font: 13px/1.4 "Segoe UI", system-ui, sans-serif; color: var(--ink); margin: 0; }
+  section { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 15px; margin: 0; display: flex; justify-content: space-between; align-items: baseline; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--mute); margin: 0 0 6px; }
+  .meta { color: var(--mute); font-size: 12px; }
+  .progress { height: 8px; background: #e6e6e6; border-radius: 4px; overflow: hidden; margin: 6px 0; }
+  .progress div { height: 100%; background: #555; }
+  .steps { margin: 6px 0; font-size: 12px; }
+  .step { padding: 2px 0; }
+  .step .tick { display: inline-block; width: 16px; }
+  .step.done { color: var(--ok); }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  button { font: inherit; padding: 4px 10px; border: 1px solid #888; background: #fff; border-radius: 4px; cursor: pointer; }
+  button.primary { background: #1d1d1d; color: #fff; border-color: #1d1d1d; }
+  .summary { padding: 6px 8px; border-radius: 4px; margin-top: 8px; font-size: 12px; }
+  .summary.err { background: var(--errbg); color: var(--err); }
+  .summary.ok { background: var(--okbg); color: var(--ok); }
+  .summary ul { margin: 4px 0 0 16px; padding: 0; }
+  .summary a { color: inherit; cursor: pointer; text-decoration: underline; }
+  .hint { color: var(--ink); }
+  .saw { background: var(--hand); }
+  .stop { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+  .stop input { font: 600 16px/1 inherit; width: 130px; padding: 5px 6px; border: 1px solid #aaa; border-radius: 3px; }
+  .stock { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .stock button { text-align: left; font-size: 12px; padding: 5px 7px; }
+  .stock button.on { background: #1d1d1d; color: #fff; }
+  .stock .q { float: right; opacity: .7; }
+  .sizehead { grid-column: 1 / -1; font-weight: 600; font-size: 12px; margin-top: 4px; }
+  .row { display: flex; align-items: center; gap: 6px; padding: 3px 0; border-bottom: 1px solid #eee; font-size: 12px; }
+  .row .name { flex: 1; }
+  details summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--mute); }
+  .note { color: var(--mute); font-size: 12px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px 10px; font-size: 12px; }
+  #status { color: var(--err); font-size: 12px; min-height: 1em; }
+</style>
+</head>
+<body>
+<section id="wall"></section>
+
+<section id="building"></section>
+<div id="mode-note" class="note" style="padding:4px 14px;background:#eee"></div>
+<section class="saw adv">
+  <h2>Saw</h2>
+  <div id="hand" class="note"></div>
+  <div class="stop">
+    <label for="cut"><strong>Saw stop</strong></label>
+    <input id="cut" placeholder="full length">
+    <button id="setcut">Set</button>
+    <button id="clearcut">Full length</button>
+  </div>
+  <label><input type="checkbox" id="offcuts"> Offcuts first (best fit from the offcut pile)</label>
+  <div class="note" id="kerf"></div>
+  <div id="status"></div>
+</section>
+
+<section class="adv">
+  <h2>Stock - click to load it</h2>
+  <div class="stock" id="piles"></div>
+</section>
+
+<section class="adv">
+  <details id="offdet"><summary id="offsum">Offcut pile</summary><div id="offcuts-list"></div></details>
+  <details id="cartdet"><summary id="cartsum">Cart</summary><div id="cart"></div></details>
+</section>
+
+<section>
+  <h2>Material use</h2>
+  <div class="stats" id="stats"></div>
+  <div id="instructor" style="display:none;margin-top:8px"><button id="restock">Restock yard (instructor)</button></div>
+</section>
+
+<script>
+var S = null;
+function $(id) { return document.getElementById(id); }
+function el(tag, attrs, kids) {
+  var e = document.createElement(tag);
+  for (var k in (attrs || {})) {
+    if (k === 'text') e.textContent = attrs[k];
+    else if (k.slice(0, 2) === 'on') e.addEventListener(k.slice(2), attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  }
+  (kids || []).forEach(function (c) { if (c) e.appendChild(c); });
+  return e;
+}
+function call(n, p) { $('status').textContent = ''; sketchup[n](JSON.stringify(p || {})); }
+
+function renderWall(w) {
+  var box = $('wall'); box.innerHTML = '';
+  if (!w) { box.appendChild(el('div', { 'class': 'note', text: 'No walls yet. Place walls first.' })); return; }
+  box.appendChild(el('h1', {}, [el('span', { text: w.id + ' - ' + w.type }), el('span', { 'class': 'meta', text: w.level })]));
+  var pct = w.total ? Math.round(100 * w.framed / w.total) : 0;
+  box.appendChild(el('div', { 'class': 'progress' }, [el('div', { style: 'width:' + pct + '%' })]));
+  box.appendChild(el('div', { 'class': 'meta', text: w.framed + ' of ' + w.total + ' locations framed. Hover a wall to switch to it.' }));
+  if (w.steps) {
+    var ol = el('div', { 'class': 'steps' });
+    w.steps.forEach(function (st) {
+      ol.appendChild(el('div', { 'class': 'step' + (st.done ? ' done' : '') }, [
+        el('span', { 'class': 'tick', text: st.done ? '\u2713' : '\u25CB' }), el('strong', { text: st.name }), el('span', { 'class': 'meta', text: '  ' + st.text })]));
+    });
+    box.appendChild(ol);
+  }
+  if (!S.guided) box.appendChild(el('div', { 'class': 'btns modes' }, ['nail', 'layout', 'opening'].map(function (m) {
+    var names = { nail: 'Nail', layout: 'Mark stud layout', opening: 'Mark opening CL' };
+    return el('button', { 'class': S.mode === m ? 'primary' : '', text: names[m], onclick: function () { call('mode', { mode: m }); } });
+  })));
+  box.appendChild(el('div', { 'class': 'btns' }, [
+    el('button', { 'class': 'primary', text: 'Request inspection', onclick: function () { call('inspect'); } }),
+    el('button', { text: 'Shop drawing', onclick: function () { call('shop'); } }),
+    el('button', { text: 'Openings', onclick: function () { call('openings'); } })
+  ]));
+  var ins = w.inspection;
+  if (S.guided) box.appendChild(el('div', { 'class': 'btns' }, [el('button', { 'class': S.mode === 'guided' ? 'primary' : '', text: 'Frame walls (pop-ups)', onclick: function () { call('mode', { mode: 'nail' }); } })]));
+  if (ins) {
+    var s = el('div', { 'class': 'summary ' + (ins.passed ? 'ok' : 'err') }, [el('strong', { text: ins.summary })]);
+    if (ins.issues.length) {
+      var ul = el('ul');
+      ins.issues.forEach(function (i) {
+        var li = el('li', {}, [el('a', { text: i.label + ': ' + i.message, onclick: function () { call('zoom', { slot: i.slot_id }); } })]);
+        if (i.hint) li.appendChild(el('div', { 'class': 'hint', text: i.hint }));
+        if (i.fix) li.appendChild(el('div', { 'class': 'hint', text: 'Should be: ' + i.fix.size + ' x ' + i.fix.length_text }));
+        ul.appendChild(li);
+      });
+      s.appendChild(ul);
+    }
+    box.appendChild(s);
+  }
+}
+
+function renderBuilding(b) {
+  var box = $('building'); box.innerHTML = '';
+  if (!b) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  box.appendChild(el('h2', { text: 'Double top plates - ' + b.level + ' (whole building)' }));
+  if (b.blockers.length) {
+    box.appendChild(el('div', { 'class': 'note', text: 'Unlocks when every wall is framed and standing. Still framing: ' + b.blockers.join(', ') }));
+    return;
+  }
+  box.appendChild(el('div', { 'class': 'note', text: b.placed.length + ' of ' + b.walls + ' on' + (b.placed.length ? ' - order: ' + b.placed.join(', ') : '') +
+    '. Click walls in the order the double plates go on - the first plate at a corner or tee laps over it.' }));
+  box.appendChild(el('div', { 'class': 'btns' }, [
+    el('button', { 'class': S.mode === 'dtp' ? 'primary' : '', text: 'Top view: place double plates', onclick: function () { call('dtp'); } }),
+    el('button', { text: 'Check interlock', onclick: function () { call('check_interlock'); } })]));
+  if (b.results) {
+    var ok = b.ok === b.joints;
+    var sum = el('div', { 'class': 'summary ' + (ok ? 'ok' : 'err') }, [el('strong', { text: b.ok + ' of ' + b.joints + ' joints interlocked' })]);
+    var ul = el('ul'); b.results.filter(function (r) { return !r.ok; }).forEach(function (r) { ul.appendChild(el('li', { text: r.text })); });
+    sum.appendChild(ul); box.appendChild(sum);
+  }
+}
+
+function load(state) {
+  S = state;
+  renderWall(state.wall);
+  renderBuilding(state.building);
+  document.querySelectorAll('.adv').forEach(function (x) { x.style.display = state.guided ? 'none' : ''; });
+  $('mode-note').style.display = state.guided ? 'none' : '';
+  $('mode-note').textContent = { nail: 'Tool: NAIL', layout: 'Tool: MARK STUD LAYOUT - click stud centers on the bottom plate', opening: 'Tool: MARK OPENING - click the opening centerline on the bottom plate', dtp: 'Tool: DOUBLE TOP PLATES - click walls from the top view in order' }[state.mode] + '  (Tab cycles)';
+  $('hand').textContent = state.hand
+    ? 'In hand: ' + state.hand.size + ' x ' + state.hand.length_text + ' - next click nails this piece. Esc sets it down.'
+    : 'Each click on a layout mark pulls a board from the loaded stock, cuts it to the stop, and nails it in.';
+  if (document.activeElement !== $('cut')) $('cut').value = state.cut_text;
+  $('offcuts').checked = state.use_offcuts;
+  $('kerf').textContent = 'Kerf ' + state.kerf_text + '. You can also type the stop in SketchUp\'s Measurements box (full = no cut, o = offcuts first).';
+  var piles = $('piles'); piles.innerHTML = '';
+  var lastSize = null;
+  state.piles.forEach(function (p) {
+    if (p.size !== lastSize) { lastSize = p.size; piles.appendChild(el('div', { 'class': 'sizehead', text: p.size })); }
+    var name = p.label.replace(p.size + ' ', '');
+    var b = el('button', { 'class': p.id === state.stock ? 'on' : '', onclick: function () { call('set_stock', { id: p.id }); } },
+      [document.createTextNode(name), el('span', { 'class': 'q', text: p.qty === null ? '' : p.qty })]);
+    piles.appendChild(b);
+  });
+  var ol = $('offcuts-list'); ol.innerHTML = '';
+  $('offsum').textContent = 'Offcut pile (' + state.offcuts.length + ')';
+  state.offcuts.forEach(function (p) {
+    ol.appendChild(el('div', { 'class': 'row' }, [el('span', { 'class': 'name', text: p.size + ' x ' + p.length_text }),
+      el('button', { text: 'Pick up', onclick: function () { call('take', { id: p.id }); } }),
+      el('button', { text: 'Scrap', onclick: function () { call('discard', { id: p.id }); } })]));
+  });
+  var c = $('cart'); c.innerHTML = '';
+  $('cartsum').textContent = 'Cart - loose cut pieces (' + state.cart.length + ')';
+  state.cart.forEach(function (p) {
+    c.appendChild(el('div', { 'class': 'row' }, [el('span', { 'class': 'name', text: p.size + ' x ' + p.length_text + (p.from ? ' (' + p.from + ')' : '') }),
+      el('button', { text: 'Pick up', onclick: function () { call('take', { id: p.id }); } }),
+      el('button', { text: 'Scrap', onclick: function () { call('discard', { id: p.id }); } })]));
+  });
+  var st = state.stats, sx = $('stats'); sx.innerHTML = '';
+  [['Boards', st.boards_pulled], ['Pulled', st.pulled_lf + ' LF'], ['Nailed', st.installed_lf + ' LF'],
+   ['Offcuts', st.offcut_lf + ' LF'], ['Scrap', st.scrap_lf + ' LF'], ['Not nailed', st.waste_pct + '%']].forEach(function (a) {
+    sx.appendChild(el('div', {}, [el('strong', { text: a[0] + ': ' }), document.createTextNode(String(a[1]))]));
+  });
+  $('instructor').style.display = state.instructor ? '' : 'none';
+}
+function setStatus(t) { $('status').textContent = t || ''; }
+$('setcut').onclick = function () { call('set_cut', { text: $('cut').value }); };
+$('cut').addEventListener('keydown', function (e) { if (e.key === 'Enter') { call('set_cut', { text: $('cut').value }); $('cut').blur(); } });
+$('clearcut').onclick = function () { $('cut').value = ''; call('set_cut', { text: '' }); };
+$('offcuts').onchange = function () { call('toggle_offcuts', { on: $('offcuts').checked }); };
+$('restock').onclick = function () { call('restock'); };
+window.onload = function () { sketchup.ready(''); };
+</script>
+</body>
+</html>

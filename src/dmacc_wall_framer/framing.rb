@@ -1,0 +1,484 @@
+# Pure-Ruby framing engine. No SketchUp API in here, so it can be
+# unit-tested outside SketchUp. All dimensions are in inches.
+#
+# Wall-local coordinates:
+#   x = along the wall (0 at the wall start = first click)
+#   y = through the wall thickness (0 = reference face, + = into the wall)
+#   z = up (0 = bottom of bottom plate = the wall's level datum)
+
+module DMACC
+  module WallFramer
+    module Framing
+      T = 1.5 # actual thickness of 2x lumber
+
+      ACTUAL = {
+        '2x4' => 3.5, '2x6' => 5.5, '2x8' => 7.25,
+        '2x10' => 9.25, '2x12' => 11.25
+      }.freeze
+      SIZES = ACTUAL.keys.freeze
+
+      # Roles a student can pick for a slot.
+      ROLES = ['Bottom Plate', 'Top Plate', 'Double Top Plate', 'Common Stud',
+               'King Stud', 'Jack Stud', 'Cripple Stud', 'Header', 'Rough Sill'].freeze
+
+      # SIMPLIFIED default header table: max rough-opening width (in) => min header.
+      # Placeholder only - the instructor should replace this with the table the
+      # class uses (e.g. from IRC Table R602.7(1) for the assignment's loads).
+      DEFAULT_HEADER_TABLE = [[42.0, '2x6'], [60.0, '2x8'], [78.0, '2x10'], [9999.0, '2x12']].freeze
+
+      DEFAULT_WALL = {
+        'stud' => '2x4', 'spacing' => 16.0, 'height' => 97.125,
+        'top_plates' => 2, 'length' => 120.0, 'openings' => []
+      }.freeze
+
+      Member = Struct.new(:type, :nominal, :length, :x, :y, :z, :dx, :dy, :dz)
+
+      # A slot is one framing member the student has to identify.
+      #   id       stable key, e.g. "V:15.25:1.5", "HDR:W1"
+      #   kind     :vertical or :horizontal
+      #   anchor   :bottom (sits on z) or :top (hangs from z) - vertical only
+      #   x, z     where it goes (left edge / anchor height)
+      #   expected {'role','size','length'}
+      #   label    human description of the location
+      #   deps     slot ids that must be in before this one (job-site order)
+      #   phase    'plates' | 'opening' | 'commons' | 'dtp'
+      #   common   true for common studs on layout (students can mark these)
+      Slot = Struct.new(:id, :kind, :anchor, :x, :z, :expected, :label, :opening, :plies, :deps, :phase, :common)
+
+      module_function
+
+      # ---------------- helpers ----------------
+
+      def header_min_for(width, table = DEFAULT_HEADER_TABLE)
+        row = table.sort_by { |w, _| w.to_f }.find { |w, _| width <= w.to_f + 1e-6 }
+        row ? row[1] : table.last[1]
+      end
+
+      # Header the wall should get: per plans if given, else table minimum.
+      def header_for(opening, table = DEFAULT_HEADER_TABLE)
+        plan = opening['header']
+        return plan if SIZES.include?(plan)
+        header_min_for(opening['width'].to_f, table)
+      end
+
+      def stud_length(w)
+        w['height'].to_f - T * (1 + w['top_plates'].to_i)
+      end
+
+      def jack_count(o)
+        o['width'].to_f > 72.0 ? 2 : 1
+      end
+
+      def depth(w)
+        ACTUAL[w['stud']]
+      end
+
+      def r(v)
+        (v.to_f * 1000).round / 1000.0
+      end
+
+      # ---------------- validation of wall inputs ----------------
+
+      def validate(wall, table = DEFAULT_HEADER_TABLE)
+        w = DEFAULT_WALL.merge(wall)
+        errs = []
+        len = w['length'].to_f
+        errs << 'Wall length must be at least 12".' if len < 12
+        errs << 'Stud size must be 2x4 or 2x6.' unless %w[2x4 2x6].include?(w['stud'])
+        errs << 'Wall height is too short.' if stud_length(w) < 24
+        stud_top = T + stud_length(w)
+        ops = (w['openings'] || []).sort_by { |o| o['x'].to_f }
+        marks = ops.map { |o| o['mark'].to_s.strip.upcase }
+        dup = marks.select { |m| marks.count(m) > 1 }.uniq
+        errs << "Opening mark used twice on this wall: #{dup.join(', ')}" unless dup.empty?
+        ops.each_with_index do |o, i|
+          name = o['mark'].to_s.empty? ? "#{o['type']} ##{i + 1}" : o['mark']
+          jc = jack_count(o)
+          left = o['x'].to_f - (jc + 1) * T
+          right = o['x'].to_f + o['width'].to_f + (jc + 1) * T
+          errs << "#{name}: needs a mark from the plans (e.g. W1, D2)." if o['mark'].to_s.strip.empty?
+          errs << "#{name}: width must be more than 0." if o['width'].to_f <= 0
+          errs << "#{name}: too close to the wall start - no room for king + jack." if left < T
+          errs << "#{name}: too close to the wall end - no room for king + jack." if right > len - T
+          hh = ACTUAL[header_for(o, table)]
+          if o['height'].to_f + hh > stud_top + 1e-3
+            errs << "#{name}: RO height + #{header_for(o, table)} header won't fit under the top plate."
+          end
+          if o['type'] == 'Window'
+            errs << "#{name}: sill height is too low." if o['sill'].to_f < 2 * T + 1
+            errs << "#{name}: sill must be below the RO height." if o['sill'].to_f >= o['height'].to_f
+          end
+          nxt = ops[i + 1]
+          next unless nxt
+          nleft = nxt['x'].to_f - (jack_count(nxt) + 1) * T
+          errs << "#{name} and #{nxt['mark']}: kings overlap - openings too close." if right > nleft
+        end
+        errs
+      end
+
+      # ---------------- layout ----------------
+
+      # Left edge of each layout stud measured from wall start (tape hooked on the start).
+      def layout_marks(w)
+        sp = w['spacing'].to_f
+        len = w['length'].to_f
+        out = []
+        k = 1
+        loop do
+          x = k * sp - T / 2.0
+          break if x > len - T
+          out << x
+          k += 1
+        end
+        out
+      end
+
+      # ---------------- slots (the answer) ----------------
+
+      def slots(wall, table = DEFAULT_HEADER_TABLE)
+        w = DEFAULT_WALL.merge(wall)
+        d = depth(w)
+        size = w['stud']
+        len = w['length'].to_f
+        sl = stud_length(w)
+        stud_top = T + sl
+        ops = (w['openings'] || []).sort_by { |o| o['x'].to_f }
+        layout = layout_marks(w)
+        out = []
+
+        exp = ->(role, sz, l) { { 'role' => role, 'size' => sz, 'length' => r(l) } }
+        vslot = lambda do |x, z, anchor, role, l, label, op = nil, deps = [], phase = 'opening', common = false|
+          id = "V:#{r(x)}:#{anchor == :top ? 'T' : 'B'}#{r(z)}"
+          s = Slot.new(id, :vertical, anchor, r(x), r(z), exp.call(role, size, l), label, op, nil, deps, phase, common)
+          out << s
+          s
+        end
+        where = ->(x) { "#{fmt_len(x)} from wall start" }
+        plates = ['BP', 'TP:1']
+
+        # Bottom plate: cut full length (door cutouts come out after framing)
+        out << Slot.new('BP', :horizontal, nil, 0.0, 0.0, exp.call('Bottom Plate', size, len), 'Bottom plate',
+                        nil, nil, [], 'plates', false)
+        w['top_plates'].to_i.times do |i|
+          role = i.zero? ? 'Top Plate' : 'Double Top Plate'
+          out << Slot.new("TP:#{i + 1}", :horizontal, nil, 0.0, r(stud_top + i * T), exp.call(role, size, len), role,
+                          nil, nil, [], i.zero? ? 'plates' : 'dtp', false)
+        end
+
+        blocked = ops.map do |o|
+          jc = jack_count(o)
+          [o['x'].to_f - (jc + 1) * T, o['x'].to_f + o['width'].to_f + (jc + 1) * T]
+        end
+
+        opening_ids = []
+        ops.each do |o|
+          ox = o['x'].to_f
+          ow = o['width'].to_f
+          oh = o['height'].to_f
+          mk = o['mark'].to_s
+          jc = jack_count(o)
+          hsize = header_for(o, table)
+          hh = ACTUAL[hsize]
+          hdr_len = ow + 2 * jc * T
+          hdr_x = ox - jc * T
+          hdr_top = oh + hh
+          ids = []
+
+          kl = vslot.call(ox - (jc + 1) * T, T, :bottom, 'King Stud', sl, "#{mk} left king", mk, plates)
+          kr = vslot.call(ox + ow + jc * T, T, :bottom, 'King Stud', sl, "#{mk} right king", mk, plates)
+          ids.push(kl.id, kr.id)
+          jacks = []
+          prev_l = kl.id
+          prev_r = kr.id
+          jc.times do |j|
+            tag = jc > 1 ? " ##{j + 1}" : ''
+            jl = vslot.call(ox - (j + 1) * T, T, :bottom, 'Jack Stud', oh - T, "#{mk} left jack#{tag}", mk, [prev_l])
+            jr = vslot.call(ox + ow + j * T, T, :bottom, 'Jack Stud', oh - T, "#{mk} right jack#{tag}", mk, [prev_r])
+            prev_l = jl.id
+            prev_r = jr.id
+            jacks.push(jl.id, jr.id)
+          end
+          ids.concat(jacks)
+
+          plies = (d / T).floor
+          hdr = Slot.new("HDR:#{mk}", :horizontal, nil, r(hdr_x), r(oh), exp.call('Header', hsize, hdr_len),
+                         "#{mk} header", mk, plies, jacks, 'opening', false)
+          out << hdr
+          ids << hdr.id
+
+          if stud_top - hdr_top > 0.25
+            layout.each do |x|
+              next unless x >= hdr_x - 1e-3 && x + T <= hdr_x + hdr_len + 1e-3
+              c = vslot.call(x, stud_top, :top, 'Cripple Stud', stud_top - hdr_top, "#{mk} header block, #{where.call(x)}", mk, [hdr.id])
+              ids << c.id
+            end
+          end
+
+          if o['type'] == 'Window'
+            sill_top = o['sill'].to_f
+            sill_bot = sill_top - T
+            sill = Slot.new("SILL:#{mk}", :horizontal, nil, r(ox), r(sill_bot), exp.call('Rough Sill', size, ow),
+                            "#{mk} rough sill", mk, nil, [hdr.id], 'opening', false)
+            out << sill
+            ids << sill.id
+            xs = [ox, ox + ow - T]
+            layout.each do |x|
+              next unless x >= ox && x + T <= ox + ow
+              xs << x unless xs.any? { |e| (e - x).abs < T }
+            end
+            xs.sort.each do |x|
+              c = vslot.call(x, T, :bottom, 'Cripple Stud', sill_bot - T, "#{mk} cripple under sill, #{where.call(x)}", mk, [sill.id])
+              ids << c.id
+            end
+          end
+          opening_ids.concat(ids)
+        end
+
+        # End studs + commons: after the plates and every opening unit
+        cdeps = plates + opening_ids
+        ends = []
+        ends << vslot.call(0.0, T, :bottom, 'Common Stud', sl, 'Wall start (end stud)', nil, cdeps, 'commons')
+        ends << vslot.call(len - T, T, :bottom, 'Common Stud', sl, 'Wall end (end stud)', nil, cdeps, 'commons')
+        commons = []
+        layout.each do |x|
+          next if x < T || x + T > len - T
+          next if blocked.any? { |a, b| x + T > a && x < b }
+          commons << vslot.call(x, T, :bottom, 'Common Stud', sl, "Common stud, #{where.call(x)}", nil, cdeps, 'commons', true)
+        end
+        # Double top plate goes on last
+        all_ids = out.map(&:id) - ['TP:2']
+        out.each { |s| s.deps = all_ids if s.id == 'TP:2' }
+
+        out.sort_by { |s| [s.kind == :horizontal ? 0 : 1, s.x, s.z] }
+      end
+
+      # Where commons may NOT be marked (between kings of an opening).
+      def opening_zones(wall)
+        (wall['openings'] || []).map do |o|
+          jc = jack_count(o)
+          [o['x'].to_f - (jc + 1) * T, o['x'].to_f + o['width'].to_f + (jc + 1) * T, o['mark']]
+        end
+      end
+
+      # A slot for a common stud the student marked at x (left edge).
+      def mark_slot(wall, x, deps)
+        w = DEFAULT_WALL.merge(wall)
+        sl = stud_length(w)
+        Slot.new("V:#{r(x)}:B#{r(T)}", :vertical, :bottom, r(x), r(T),
+                 { 'role' => 'Common Stud', 'size' => w['stud'], 'length' => r(sl) },
+                 "Common stud, your mark at #{fmt_len(x)}", nil, nil, deps, 'commons', true)
+      end
+
+      # Slots the student actually works with. With student layout on, the
+      # commons come from the student's own marks instead of the answer.
+      def work_slots(wall, table = DEFAULT_HEADER_TABLE, student_layout = false)
+        all = slots(wall, table)
+        return all unless student_layout
+        keep = all.reject(&:common)
+        deps = all.find { |s| s.common || s.label.start_with?('Wall start') }&.deps || []
+        have = keep.map(&:id)
+        marks = (wall['marks'] || []).map { |x| mark_slot(wall, x.to_f, deps) }.reject { |m| have.include?(m.id) }
+        (keep + marks).sort_by { |s| [s.kind == :horizontal ? 0 : 1, s.x, s.z] }
+      end
+
+      # Snap a student's mark to the true layout if within tol.
+      def snap_mark(wall, x, tol = 0.125)
+        exact = layout_marks(DEFAULT_WALL.merge(wall)).find { |m| (m - x).abs <= tol }
+        exact || (x * 16).round / 16.0
+      end
+
+      # ---------------- geometry for what the STUDENT entered ----------------
+
+      # Returns Members to draw for one slot given the student's entry
+      # (role/size/length). Geometry follows the student's numbers, so a wrong
+      # size or length is visible in the model.
+      def members_for_entry(wall, slot, entry)
+        w = DEFAULT_WALL.merge(wall)
+        d = depth(w)
+        size = entry['size']
+        len = entry['length'].to_f
+        width = ACTUAL[size] || d
+        role = entry['role']
+        return [] if len <= 0
+
+        case slot.kind
+        when :vertical
+          z = slot.anchor == :top ? slot.z - len : slot.z
+          [Member.new(role, size, len, slot.x, 0.0, z, T, width, len)]
+        else
+          if slot.id.start_with?('HDR:')
+            exp_len = slot.expected['length'].to_f
+            cx = slot.x + exp_len / 2.0
+            # Pieces installed one ply at a time; older form entries = full header
+            plies = entry['pieces'] || Array.new(slot.plies || 2) { { 'size' => size, 'length' => len } }
+            plies.each_with_index.map do |pc, i|
+              pl = pc['length'].to_f
+              ph = ACTUAL[pc['size']] || width
+              Member.new(role, pc['size'], pl, cx - pl / 2.0, i * T, slot.z, pl, T, ph)
+            end
+          elsif slot.id.start_with?('SILL:')
+            exp_len = slot.expected['length'].to_f
+            cx = slot.x + exp_len / 2.0
+            [Member.new(role, size, len, cx - len / 2.0, 0.0, slot.z, len, width, T)]
+          elsif slot.id == 'TP:2' && entry['segs']
+            # double top plate placed as a building step: lapped / broken at joints
+            entry['segs'].map { |a, b| Member.new(role, size, b - a, a, 0.0, slot.z, b - a, width, T) }
+          elsif slot.id == 'BP' && !(cuts = door_cuts(w)).empty?
+            # bottom plate is cut out at doors once it's nailed in
+            pieces = []
+            x0 = slot.x
+            stop = slot.x + len
+            cuts.each do |a, b|
+              pieces << [x0, [a, stop].min] if a > x0
+              x0 = [x0, b].max
+            end
+            pieces << [x0, stop] if stop > x0
+            pieces.select { |a, b| b - a > 0.01 }.map { |a, b| Member.new(role, size, len, a, 0.0, slot.z, b - a, width, T) }
+          else # plates: start at slot x
+            [Member.new(role, size, len, slot.x, 0.0, slot.z, len, width, T)]
+          end
+        end
+      end
+
+      def door_cuts(w)
+        (w['openings'] || []).select { |o| o['type'] == 'Door' }
+                             .map { |o| [o['x'].to_f, o['x'].to_f + o['width'].to_f] }.sort
+      end
+
+      # Local [x0, z0, x1, z1] box a slot occupies when framed correctly
+      # (used only to hit-test the cursor - never shown as a length).
+      def slot_box(slot)
+        l = slot.expected['length'].to_f
+        if slot.kind == :vertical
+          z0 = slot.anchor == :top ? slot.z - l : slot.z
+          [slot.x, z0, slot.x + T, z0 + l]
+        else
+          h = slot.id.start_with?('HDR:') ? ACTUAL[slot.expected['size']] : T
+          [slot.x, slot.z, slot.x + l, slot.z + h]
+        end
+      end
+
+      # Slot under wall-local point (x, z), or nil. Studs get a little extra
+      # width so they're easy to hit.
+      def slot_at(slots, x, z, pad = 1.0)
+        # An exact hit beats a near miss; the pad only helps when nothing is hit.
+        exact = slot_hits(slots, x, z, 0.0)
+        return smallest(exact) unless exact.empty?
+        smallest(slot_hits(slots, x, z, pad))
+      end
+
+      def smallest(hits)
+        hits.min_by do |s|
+          x0, z0, x1, z1 = slot_box(s)
+          (x1 - x0) * (z1 - z0)
+        end
+      end
+
+      def slot_hits(slots, x, z, pad)
+        slots.select do |s|
+          x0, z0, x1, z1 = slot_box(s)
+          px = s.kind == :vertical ? pad : 0.0
+          pz = s.kind == :vertical ? 0.0 : 0.5
+          x >= x0 - px && x <= x1 + px && z >= z0 - pz && z <= z1 + pz
+        end
+      end
+
+      # The correct members for a wall (answer key / auto cut list).
+      def expected_members(wall, table = DEFAULT_HEADER_TABLE)
+        slots(wall, table).flat_map do |s|
+          ms = members_for_entry(wall, s, s.expected)
+          s.id == 'BP' ? ms.first(1) : ms # one full-length plate, even if drawn cut out at doors
+        end
+      end
+
+      # Ghost placeholder (layout mark) geometry for an unconfirmed slot.
+      # Vertical: a thin tile at the anchor - shows WHERE, not how long.
+      # Horizontal: a thin strip showing the run.
+      def ghost_for(wall, slot)
+        w = DEFAULT_WALL.merge(wall)
+        d = depth(w)
+        g = 0.375
+        if slot.kind == :vertical
+          z = slot.anchor == :top ? slot.z - g : slot.z
+          Member.new('Layout Mark', '', 0, slot.x, 0.0, z, T, d, g)
+        else
+          Member.new('Layout Mark', '', 0, slot.x, 0.0, slot.z, slot.expected['length'].to_f, d, g)
+        end
+      end
+
+      # ---------------- formatting ----------------
+
+      # 92.625 -> 7' 8-5/8"
+      def fmt_len(inches)
+        neg = inches.to_f < 0
+        sixteenths = (inches.to_f.abs * 16).round
+        ft = sixteenths / 192
+        rem = sixteenths % 192
+        whole = rem / 16
+        frac = rem % 16
+        fs = ''
+        if frac > 0
+          g = frac.gcd(16)
+          fs = "-#{frac / g}/#{16 / g}"
+        end
+        s = ft > 0 ? %(#{ft}' #{whole}#{fs}") : %(#{whole}#{fs}")
+        neg ? "-#{s}" : s
+      end
+
+      # 92.625 -> 92-5/8"  (inches only, how precuts are named)
+      def fmt_in(inches)
+        sixteenths = (inches.to_f * 16).round
+        whole = sixteenths / 16
+        frac = sixteenths % 16
+        return %(#{whole}") if frac.zero?
+        g = frac.gcd(16)
+        return %(#{frac / g}/#{16 / g}") if whole.zero?
+        %(#{whole}-#{frac / g}/#{16 / g}")
+      end
+
+      # Parses what students type: 92 5/8, 92-5/8, 7' 8-5/8", 7'8.625, 92.625
+      def parse_len(str)
+        s = str.to_s.strip.downcase.tr('”“', '"').tr('’‘', "'")
+        return nil if s.empty?
+        ft = 0.0
+        if s.include?("'")
+          a, s = s.split("'", 2)
+          ft = Float(a.strip)
+          s = s.to_s
+        end
+        s = s.delete('"').strip.sub(/^-/, '').strip
+        inch = 0.0
+        unless s.empty?
+          parts = s.split(/[\s-]+/)
+          parts.each do |p|
+            if p.include?('/')
+              n, dd = p.split('/')
+              inch += Float(n) / Float(dd)
+            else
+              inch += Float(p)
+            end
+          end
+        end
+        ft * 12 + inch
+      rescue ArgumentError, TypeError, ZeroDivisionError
+        nil
+      end
+
+      PRECUTS = { 92.625 => '92-5/8" precut', 104.625 => '104-5/8" precut',
+                  116.625 => '116-5/8" precut' }.freeze
+
+      def stock_for(len)
+        PRECUTS.each { |l, label| return label if (len - l).abs < 0.01 }
+        ft = [8, 10, 12, 14, 16, 18, 20].find { |f| f * 12 >= len - 0.001 }
+        ft ? "#{ft}'" : 'Splice / order long'
+      end
+
+      # [size, length] => qty  (header plies count as separate pieces)
+      def cut_list(members)
+        h = Hash.new(0)
+        members.each { |m| h[[m.nominal, r(m.length)]] += 1 }
+        h
+      end
+    end
+  end
+end

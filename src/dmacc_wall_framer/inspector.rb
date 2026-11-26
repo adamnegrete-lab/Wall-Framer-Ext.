@@ -1,0 +1,218 @@
+# Pure-Ruby inspection: compares what the student entered for each slot
+# against the correct framing and writes feedback at the instructor's level.
+module DMACC
+  module WallFramer
+    module Inspector
+      LENGTH_TOL = 1.0 / 16 # within 1/16" counts as correct
+
+      # Feedback levels the instructor can pick, least help to most.
+      LEVELS = {
+        'count' => 'Count only - "3 errors on W-101"',
+        'locate' => 'Locate - flags which members and which field is wrong',
+        'coach' => 'Coach - flags + explains the why (no answers)',
+        'fix' => 'Suggest fix - shows the correct value'
+      }.freeze
+
+      # Why-hints. Written for students: short, trade terms, explain the reason.
+      ROLE_HINTS = {
+        'Common Stud' => 'Full-height stud on the layout. It carries the top plates down to the bottom plate.',
+        'King Stud' => 'Full-height stud on the outside of the jack. It runs plate to plate and gets nailed into the end of the header.',
+        'Jack Stud' => 'Also called a trimmer. It sits tight to the rough opening and holds up the header.',
+        'Cripple Stud' => 'Short stud that keeps the layout going above a header or below a rough sill, so sheathing and drywall still land on framing.',
+        'Header' => 'Spans the opening and carries the load above it down to the jacks.',
+        'Rough Sill' => 'Laid flat at the bottom of a window rough opening. The window sits on it.',
+        'Bottom Plate' => 'Laid flat on the subfloor. Studs stand on it. It gets cut out at door openings.',
+        'Top Plate' => 'First plate across the top of the studs.',
+        'Double Top Plate' => 'Second top plate. It ties walls together at corners and intersections.'
+      }.freeze
+
+      LENGTH_HINTS = {
+        'Common Stud' => 'Stud cut length = overall wall height minus the bottom plate and the top plate(s) (1-1/2" each).',
+        'King Stud' => 'A king runs the same length as a common stud.',
+        'Jack Stud' => 'Jack cut length = rough opening height minus the bottom plate.',
+        'Cripple Stud' => 'Above a header: space between the top of the header and the underside of the top plate. Below a sill: top of the bottom plate to the underside of the rough sill.',
+        'Header' => 'Header length = rough opening width plus one jack (1-1/2") on each side.',
+        'Rough Sill' => 'Rough sill length = rough opening width (it fits between the jacks).',
+        'Bottom Plate' => 'Plate runs the full wall length. At a door, stop the plate at the rough opening.',
+        'Top Plate' => 'Top plate runs the full wall length.',
+        'Double Top Plate' => 'Check the wall length.'
+      }.freeze
+
+      SIZE_HINT = 'Check the wall type on the plans. Studs and plates match the wall depth. Headers come from the header schedule or header table.'
+
+      Issue = Struct.new(:slot_id, :label, :fields, :message, :hint, :fix) do
+        def to_h
+          { 'slot_id' => slot_id, 'label' => label, 'fields' => fields,
+            'message' => message, 'hint' => hint, 'fix' => fix }
+        end
+      end
+
+      module_function
+
+      def same_len?(a, b)
+        (a.to_f - b.to_f).abs <= LENGTH_TOL + 1e-9
+      end
+
+      def complete?(entry)
+        entry && !entry['role'].to_s.empty? && !entry['size'].to_s.empty? && entry['length'].to_f > 0
+      end
+
+      # Returns { 'wall_id', 'total', 'correct', 'blank', 'issues' => [Issue], 'summary' }
+      def inspect_wall(wall, entries, level: 'coach', table: Framing::DEFAULT_HEADER_TABLE, student_layout: false)
+        slots = Framing.slots(wall, table)
+        entries ||= {}
+        issues = []
+        blank = 0
+        correct = 0
+        extra = 0
+        if student_layout
+          ids = slots.map(&:id)
+          marks = (wall['marks'] || []).map(&:to_f)
+          lay = Framing.layout_marks(Framing::DEFAULT_WALL.merge(wall))
+          marks.each do |mx|
+            ms = Framing.mark_slot(wall, mx, [])
+            next if ids.include?(ms.id)
+            extra += 1
+            near = lay.min_by { |l| (l - mx).abs }
+            sp = wall['spacing'].to_f
+            issues << Issue.new(ms.id, ms.label, ['layout'],
+                                "Off layout - this mark doesn't land on #{sp.round(1) == sp.round ? sp.round : sp}\" O.C.",
+                                'Hook your tape on the wall start. Layout marks fall every 16" (or 24") with the stud edge 3/4" back from the mark, so the stud centers on it. Pull the extra stud and move the mark.',
+                                near && { 'role' => 'Common Stud', 'size' => wall['stud'], 'length' => near,
+                                          'length_text' => "move to #{Framing.fmt_len(near)} from start" })
+          end
+        end
+        slots.each do |s|
+          e = entries[s.id]
+          unless complete?(e)
+            blank += 1
+            if student_layout && s.common && !(wall['marks'] || []).any? { |m| Framing.mark_slot(wall, m.to_f, []).id == s.id }
+              issues << Issue.new(s.id, 'Common stud layout', ['layout'], 'A common stud is missing from your layout.',
+                                  'Count your layout marks between openings - every 16" (or 24") O.C. space gets a stud.',
+                                  { 'role' => 'Common Stud', 'size' => s.expected['size'], 'length' => s.x,
+                                    'length_text' => "mark at #{Framing.fmt_len(s.x)} from start" })
+              next
+            end
+            issues << Issue.new(s.id, s.label, %w[role size length].select { |f| e.nil? || e[f].to_s.empty? || (f == 'length' && e[f].to_f <= 0) },
+                                'Not filled in yet.', nil, nil)
+            next
+          end
+          if e['auto']
+            correct += 1
+            next
+          end
+          x = s.expected
+          bad = []
+          bad << 'role' unless e['role'] == x['role']
+          pcs = e['pieces']
+          if pcs && s.id.start_with?('HDR:')
+            bad << 'size' unless pcs.all? { |pc| pc['size'] == x['size'] }
+            bad << 'length' unless pcs.all? { |pc| same_len?(pc['length'], x['length']) }
+            if pcs.size != s.plies.to_i
+              issues << ply_issue(s, pcs.size, bad)
+              next
+            end
+          else
+            bad << 'size' unless e['size'] == x['size']
+            bad << 'length' unless same_len?(e['length'], x['length'])
+          end
+          if bad.empty?
+            correct += 1
+            next
+          end
+          issues << build_issue(s, e, bad)
+        end
+
+        id = wall['id'] || 'Wall'
+        total = slots.size + extra
+        wrong = issues.size - blank
+        summary = if issues.empty?
+                    "#{id}: PASSED - all #{total} members are correct."
+                  else
+                    parts = []
+                    parts << "#{wrong} member#{wrong == 1 ? '' : 's'} with errors" if wrong > 0
+                    parts << "#{blank} not filled in" if blank > 0
+                    "#{id}: #{parts.join(', ')} (#{correct} of #{total} correct)."
+                  end
+        issues = shape_for_level(issues, level)
+        { 'wall_id' => id, 'total' => total, 'correct' => correct, 'blank' => blank,
+          'wrong' => wrong, 'issues' => issues, 'summary' => summary, 'level' => level }
+      end
+
+      def ply_issue(slot, have, bad)
+        x = slot.expected
+        msg = "Header has #{have} of #{slot.plies} plies."
+        msg += ' A ply is the wrong size.' if bad.include?('size')
+        msg += ' A ply is the wrong length.' if bad.include?('length')
+        hint = 'A built-up header uses enough plies to match the wall depth (2 plies + 1/2" spacer in a 2x4 wall, 3 plies in a 2x6 wall).'
+        hint += ' ' + LENGTH_HINTS['Header'] if bad.include?('length')
+        Issue.new(slot.id, slot.label, (['plies'] + bad).uniq, msg, hint,
+                  { 'role' => x['role'], 'size' => x['size'], 'length' => x['length'],
+                    'length_text' => "#{slot.plies} plies x #{Framing.fmt_len(x['length'])}" })
+      end
+
+      def build_issue(slot, entry, bad)
+        x = slot.expected
+        role = x['role']
+        msgs = []
+        hints = []
+        if bad.include?('role')
+          msgs << 'Wrong member for this location.'
+          hints << ROLE_HINTS[role]
+        end
+        if bad.include?('size')
+          msgs << 'Wrong lumber size.'
+          hints << SIZE_HINT
+        end
+        if bad.include?('length')
+          diff = entry['length'].to_f - x['length'].to_f
+          msgs << (diff > 0 ? 'Cut length is too long.' : 'Cut length is too short.')
+          hints << LENGTH_HINTS[role]
+        end
+        fix = { 'role' => x['role'], 'size' => x['size'], 'length' => x['length'],
+                'length_text' => Framing.fmt_len(x['length']) }
+        Issue.new(slot.id, slot.label, bad, msgs.join(' '), hints.compact.uniq.join(' '), fix)
+      end
+
+      # Strip information the instructor's feedback level doesn't allow.
+      # ---------- job-site order ----------
+
+      def slot_done?(slot, entry)
+        return false unless complete?(entry)
+        return (entry['pieces'] || []).size >= slot.plies.to_i if slot.id.start_with?('HDR:') && entry['pieces']
+        true
+      end
+
+      # Why a slot can't be framed yet (nil = go ahead).
+      def gate(slot, entries, by_id)
+        missing = (slot.deps || []).reject { |id| (s = by_id[id]).nil? || slot_done?(s, entries[id]) }
+        return nil if missing.empty?
+        return 'Plates first - cut and set the bottom plate and top plate.' if (missing & %w[BP TP:1]).any?
+        role = slot.expected['role']
+        case slot.phase
+        when 'dtp' then 'Double top plates go on after every wall is framed and standing - use Double top plates in the Framing panel.'
+        when 'commons' then 'Finish every opening unit first, then lay out and nail the commons.'
+        else
+          if role == 'Jack Stud' then 'Nail the king first - the jack gets nailed to the king.'
+          elsif role == 'Header' then 'Both jacks go in before the header - the header sits on them.'
+          elsif role == 'Rough Sill' then 'Set the header first, then pull the rough opening down from the top of the jack to find the sill.'
+          elsif slot.label.include?('header block') then 'Header first - header blocks fill from the header up to the top plate.'
+          elsif slot.label.include?('under sill') then 'Sill first - cripples run from the bottom plate up to the sill.'
+          else 'Not yet - something has to go in before this.'
+          end
+        end
+      end
+
+      def shape_for_level(issues, level)
+        case level
+        when 'count' then []
+        when 'locate'
+          issues.map { |i| Issue.new(i.slot_id, i.label, i.fields, i.message, nil, nil) }
+        when 'coach'
+          issues.map { |i| Issue.new(i.slot_id, i.label, i.fields, i.message, i.hint, nil) }
+        else issues
+        end
+      end
+    end
+  end
+end

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Framing Takeoff</title>
+<style>
+  :root { --ink:#1d1d1d; --mute:#666; --line:#ccc; --bg:#f6f6f4; --err:#b3261e; --errbg:#fdecea; --ok:#1e6b34; --okbg:#e8f3ea; }
+  * { box-sizing: border-box; }
+  body { font: 13px/1.4 "Segoe UI", system-ui, sans-serif; color: var(--ink); margin: 0; }
+  header { padding: 10px 14px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; }
+  main { padding: 8px 14px 70px; }
+  h2 { font-size: 14px; margin: 16px 0 4px; padding-bottom: 3px; border-bottom: 1px solid var(--line); }
+  .note { color: var(--mute); font-size: 12px; margin: 4px 0 8px; }
+  .row { display: grid; gap: 6px; align-items: center; padding: 4px 2px; border-bottom: 1px solid #eee; grid-template-columns: 26px 90px 140px 80px 1fr 26px; }
+  .res { grid-template-columns: 90px 120px 90px 90px 1fr; }
+  .head { font-weight: 600; color: var(--mute); font-size: 12px; border-bottom: 1px solid var(--line); }
+  .num { color: var(--mute); text-align: right; }
+  select, input { font: inherit; padding: 3px 5px; border: 1px solid #aaa; border-radius: 3px; width: 100%; }
+  .icon { cursor: pointer; border: none; background: none; font-size: 14px; }
+  button.btn { font: inherit; padding: 6px 12px; border: 1px solid #888; background: #fff; border-radius: 4px; cursor: pointer; }
+  button.primary { background: #1d1d1d; color: #fff; border-color: #1d1d1d; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); padding: 8px 14px; display: flex; gap: 8px; align-items: center; }
+  .bar .spacer { flex: 1; }
+  .summary { padding: 8px 10px; border-radius: 4px; margin: 8px 0; }
+  .summary.err { background: var(--errbg); color: var(--err); border: 1px solid #e6b8b4; }
+  .summary.ok { background: var(--okbg); color: var(--ok); border: 1px solid #b9d9c0; }
+  .s-ok { color: var(--ok); } .s-bad { color: var(--err); font-weight: 600; }
+</style>
+</head>
+<body>
+<header><h1>Framing Takeoff - your cut list</h1></header>
+<main>
+  <p class="note">Work from the plans and your framed walls. List every piece by size and cut length, with a quantity. Group identical pieces on one line. Header plies count as separate pieces. <span id="scope"></span></p>
+  <div class="row head"><div>#</div><div>Size</div><div>Cut length</div><div>Qty</div><div>Note (optional)</div><div></div></div>
+  <div id="rows"></div>
+  <p><button class="btn" id="add">+ Add line</button></p>
+  <div id="result"></div>
+</main>
+<div class="bar">
+  <span id="status" class="note"></span><span class="spacer"></span>
+  <button class="btn" id="auto" style="display:none">Export auto cut list (CSV)</button>
+  <button class="btn" id="save">Save</button>
+  <button class="btn primary" id="check">Check takeoff</button>
+</div>
+<script>
+var S = null;
+function $(id) { return document.getElementById(id); }
+function el(tag, attrs, kids) {
+  var e = document.createElement(tag);
+  for (var k in (attrs || {})) {
+    if (k === 'text') e.textContent = attrs[k];
+    else if (k.slice(0, 2) === 'on') e.addEventListener(k.slice(2), attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  }
+  (kids || []).forEach(function (c) { e.appendChild(c); });
+  return e;
+}
+function call(n, p) { $('status').textContent = 'Working...'; sketchup[n](JSON.stringify(p || {})); }
+function renumber() { var n = 0; document.querySelectorAll('#rows .row .num').forEach(function (x) { x.textContent = ++n; }); }
+function line(r0) {
+  var r = el('div', { 'class': 'row' });
+  r.appendChild(el('div', { 'class': 'num' }));
+  var s = el('select', { 'data-k': 'size', 'aria-label': 'Size' });
+  s.appendChild(el('option', { value: '', text: '-' }));
+  S.sizes.forEach(function (v) { var o = el('option', { value: v, text: v }); if (v === r0.size) o.selected = true; s.appendChild(o); });
+  r.appendChild(s);
+  r.appendChild(el('input', { 'data-k': 'length', value: r0.length || '', placeholder: 'e.g. 92 5/8', 'aria-label': 'Cut length' }));
+  r.appendChild(el('input', { 'data-k': 'qty', value: r0.qty || '', type: 'number', min: '0', 'aria-label': 'Quantity' }));
+  r.appendChild(el('input', { 'data-k': 'note', value: r0.note || '', 'aria-label': 'Note' }));
+  r.appendChild(el('button', { 'class': 'icon', title: 'Remove line', text: '✕', onclick: function () { r.remove(); renumber(); } }));
+  return r;
+}
+function rows() {
+  var out = [];
+  document.querySelectorAll('#rows .row').forEach(function (r) {
+    var o = {}; r.querySelectorAll('[data-k]').forEach(function (f) { o[f.dataset.k] = f.value; });
+    if (o.size || o.length || o.qty) out.push(o);
+  });
+  return out;
+}
+$('add').onclick = function () { $('rows').appendChild(line({})); renumber(); };
+$('save').onclick = function () { call('save_takeoff', { rows: rows() }); };
+$('check').onclick = function () { call('check_takeoff', { rows: rows() }); };
+$('auto').onclick = function () { call('auto_cutlist', {}); };
+
+function load(state) {
+  S = state;
+  $('rows').innerHTML = '';
+  (state.rows.length ? state.rows : [{}, {}, {}]).forEach(function (r) { $('rows').appendChild(line(r)); });
+  renumber();
+  $('auto').style.display = state.allow_auto ? '' : 'none';
+  $('scope').textContent = 'Checks against all ' + state.wall_count + ' wall(s) in the model.';
+  $('status').textContent = '';
+}
+var LABEL = { ok: 'Correct', not_needed: 'Not in model', missing: 'Missing', short: 'Short', over: 'Over' };
+function result(res) {
+  var box = $('result'); box.innerHTML = '';
+  var good = res.score >= 100;
+  var s = el('div', { 'class': 'summary ' + (good ? 'ok' : 'err') });
+  s.appendChild(el('strong', { text: 'Takeoff score: ' + res.score + '%  (' + res.matched + ' of ' + res.pieces_expected + ' pieces matched, you listed ' + res.pieces_entered + ')' }));
+  if (res.level !== 'fix' && res.missing_items > 0)
+    s.appendChild(el('div', { text: res.missing_items + ' size/length item(s) are missing from your list entirely.' }));
+  res.row_errors.forEach(function (e) { s.appendChild(el('div', { text: e.message })); });
+  box.appendChild(s);
+  if (!res.lines.length) return;
+  box.appendChild(el('h2', { text: 'Line check' }));
+  box.appendChild(el('div', { 'class': 'row res head' }, [el('div', { text: 'Size' }), el('div', { text: 'Cut length' }), el('div', { text: 'Your qty' }), el('div', { text: res.level === 'fix' ? 'Model qty' : '' }), el('div', { text: 'Result' })]));
+  res.lines.forEach(function (l) {
+    box.appendChild(el('div', { 'class': 'row res' }, [
+      el('div', { text: l.size }), el('div', { text: l.length_text }), el('div', { text: String(l.student_qty) }),
+      el('div', { text: l.expected_qty === null || l.expected_qty === undefined ? '' : String(l.expected_qty) }),
+      el('div', { 'class': l.status === 'ok' ? 's-ok' : 's-bad', text: l.message })
+    ]));
+  });
+  $('status').textContent = '';
+}
+function setStatus(t) { $('status').textContent = t; }
+window.onload = function () { sketchup.ready(''); };
+</script>
+</body>
+</html>

@@ -1,0 +1,253 @@
+require 'sketchup.rb'
+require 'json'
+
+%w[version updater framing corners joints inspector takeoff answer_key yard_logic shop project builder yard_view tools install_tool guided_tool dialogs].each do |f|
+  Sketchup.require(File.join(__dir__, f))
+end
+
+module DMACC
+  module WallFramer
+    class << self
+      # ---------- walls ----------
+
+      def draw_wall
+        d = Project.data
+        levels = d['levels'].map { |l| l['name'] }
+        types = d['wall_types'].map { |t| t['name'] }
+        @last_level = levels.first unless levels.include?(@last_level)
+        @last_type = types.first unless types.include?(@last_type)
+        res = UI.inputbox(['Level', 'Wall type'], [@last_level, @last_type],
+                          [levels.join('|'), types.join('|')], 'Place Wall')
+        return unless res
+        @last_level, @last_type = res
+        Sketchup.active_model.select_tool(DrawWallTool.new(@last_level, @last_type))
+      end
+
+      def frame_wall
+        Builder.ensure_unique_ids
+        walls = Builder.selected_walls
+        return UI.messagebox('Select one wall first (click it with the Select tool).') unless walls.size == 1
+        Dialogs.open_frame(walls.first)
+      end
+
+      def change_wall_type
+        walls = Builder.selected_walls
+        return UI.messagebox('Select one or more walls first.') if walls.empty?
+        types = Project.data['wall_types'].map { |t| t['name'] }
+        res = UI.inputbox(['Wall type'], [Builder.params_of(walls.first)['type']], [types.join('|')], 'Change Wall Type')
+        return unless res
+        type = Project.wall_type(res[0])
+        Dialogs.operation('Change Wall Type') do
+          walls.each do |w|
+            p = Builder.apply_type(Builder.params_of(w), type)
+            p['last_inspection'] = nil
+            p['flags'] = []
+            errs = Framing.validate(p, Project.header_table)
+            if errs.empty?
+              Builder.set_params(w, p)
+              Builder.rebuild(w)
+            else
+              UI.messagebox("#{p['id']} not changed:\n" + errs.join("\n"))
+            end
+          end
+        end
+      end
+
+      # ---------- reports ----------
+
+      def export_cut_list
+        unless Project.settings['auto_cutlist'] || Project.instructor?
+          return UI.messagebox('Your instructor has turned off the automatic cut list. Use Takeoff to build your own.')
+        end
+        walls = Builder.selected_walls
+        walls = Builder.all_walls if walls.empty?
+        return UI.messagebox('No walls found.') if walls.empty?
+        members = Builder.expected_members_all
+        path = UI.savepanel('Save Cut List', '', 'framing_cut_list.csv') or return
+        path += '.csv' unless path.downcase.end_with?('.csv')
+        q = ->(s) { %("#{s.to_s.gsub('"', '""')}") }
+        lines = ['Size,Cut length,Inches,Qty,Cut from']
+        Framing.cut_list(members).sort_by { |(s, l), _| [s, -l] }.each do |(size, len), qty|
+          lines << [size, q.call(Framing.fmt_len(len)), len, qty, q.call(Framing.stock_for(len))].join(',')
+        end
+        lines << ''
+        members.group_by(&:nominal).sort.each { |n, ms| lines << "#{n} total,#{(ms.sum(&:length) / 12.0).round(1)} LF" }
+        File.write(path, lines.join("\n"))
+        UI.messagebox("Cut list saved:\n#{path}")
+      end
+
+      def require_instructor
+        return true if Project.instructor?
+        UI.messagebox('Instructor only. Unlock in Project Setup.')
+        false
+      end
+
+      def student_snapshot
+        table = Project.header_table
+        d = Project.data
+        walls = Builder.all_walls
+        framing = {}
+        walls.each do |w|
+          p = Builder.params_of(w)
+          r = Inspector.inspect_wall(p, p['entries'], level: 'fix', table: table, student_layout: Project.settings['student_layout'])
+          framing[p['id']] = { 'correct' => r['correct'], 'total' => r['total'] }
+        end
+        { 'walls' => walls.map { |w| Builder.snapshot_wall(w) }, 'framing' => framing,
+          'takeoff' => d['takeoff_score'] ? { 'score' => d['takeoff_score'] } : nil,
+          'log' => d['log'], 'takeoff_log' => d['takeoff_log'] }
+      end
+
+      def export_key
+        return unless require_instructor
+        Builder.ensure_unique_ids
+        walls = Builder.all_walls
+        return UI.messagebox('No walls in this model.') if walls.empty?
+        path = UI.savepanel('Save Answer Key', '', 'answer_key.json') or return
+        path += '.json' unless path.downcase.end_with?('.json')
+        key = { 'format' => 'dmacc-wall-framer-key-1', 'created' => Time.now.strftime('%Y-%m-%d %H:%M'),
+                'model' => Sketchup.active_model.title, 'walls' => walls.map { |w| Builder.snapshot_wall(w) } }
+        File.write(path, JSON.pretty_generate(key))
+        UI.messagebox("Answer key saved (#{walls.size} walls):\n#{path}\n\nKeep this file off student computers.")
+      end
+
+      def grade_against_key
+        return unless require_instructor
+        path = UI.openpanel('Open Answer Key', '', 'Answer key|*.json||') or return
+        key = JSON.parse(File.read(path))
+        return UI.messagebox("That isn't a Wall Framer answer key.") unless key['walls']
+        Builder.ensure_unique_ids
+        res = AnswerKey.compare(key, student_snapshot)
+        show_report(report_html(res, key))
+      rescue JSON::ParserError
+        UI.messagebox("Couldn't read that file.")
+      end
+
+      def h(s)
+        s.to_s.gsub('&', '&amp;').gsub('<', '&lt;').gsub('>', '&gt;')
+      end
+
+      def report_html(res, key)
+        m = Sketchup.active_model
+        d = Project.data
+        rows = res['sections'].map do |s|
+          v = s['score'].nil? ? 'not checked' : "#{s['score']}%"
+          "<li><strong>#{h(s['name'])}:</strong> #{v}</li>"
+        end.join
+        notes = res['notes'].group_by { |n| n['area'] }.map do |area, ns|
+          "<h3>#{h(area)}</h3><ul>" + ns.map { |n| "<li>#{h(n['text'])}</li>" }.join + '</ul>'
+        end.join
+        notes = '<p>No differences found.</p>' if notes.empty?
+        log = d['log'].last(40).map do |l|
+          "<li>#{h(l['time'])} - #{h(l['wall'])}: #{l['correct']}/#{l['total']} correct, #{l['wrong']} wrong, #{l['blank']} blank</li>"
+        end.join
+        tk = d['takeoff_log'].map { |l| "<li>#{h(l['time'])} - #{l['score']}%</li>" }.join
+        <<~HTML
+          <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Wall Framer Grade Report</title>
+          <style>body{font:13px/1.45 "Segoe UI",Arial,sans-serif;color:#111;margin:20px;max-width:820px}
+          h1{font-size:18px;margin:0 0 4px}h2{font-size:15px;border-bottom:1px solid #999;padding-bottom:2px;margin-top:20px}
+          h3{font-size:13px;margin:12px 0 2px}.meta{color:#444}ul{margin:4px 0 4px 18px;padding:0}
+          @media print{button{display:none}}</style></head><body>
+          <h1>Wall Framer Grade Report</h1>
+          <div class="meta">Student file: #{h(m.title.empty? ? '(unsaved model)' : m.title)}<br>
+          Answer key: #{h(key['model'])} (#{h(key['created'])})<br>
+          Graded: #{Time.now.strftime('%Y-%m-%d %H:%M')}</div>
+          <h2>Scores by area</h2><ul>#{rows}</ul>
+          <p>Walls matched: #{res['walls_matched']} of #{res['walls_in_key']}. Inspections requested: #{res['inspections']}. Takeoff checks: #{res['takeoff_checks']}.</p>
+          <h2>Differences from the key</h2>#{notes}
+          <h2>Double top plate interlock</h2>#{interlock_html}
+          <h2>Material use</h2>#{yard_html}
+          <h2>Inspection history (last 40)</h2><ul>#{log.empty? ? '<li>None</li>' : log}</ul>
+          <h2>Takeoff history</h2><ul>#{tk.empty? ? '<li>None</li>' : tk}</ul>
+          <p style="color:#444">Framing members are scored against the correct framing for the walls and openings as the student modeled them. Wall and opening errors are scored separately above.</p>
+          </body></html>
+        HTML
+      end
+
+      def interlock_html
+        levels = Builder.all_walls.map { |w| Builder.params_of(w)['level'] }.uniq
+        rows = levels.flat_map { |lv| Builder.interlock(lv) }
+        return '<p>No joints between walls.</p>' if rows.empty?
+        ok = rows.count { |r| r['ok'] }
+        "<p>#{ok} of #{rows.size} joints interlocked.</p><ul>" + rows.reject { |r| r['ok'] }.map { |r| "<li>#{h(r['text'])}</li>" }.join + '</ul>'
+      end
+
+      def yard_html
+        return '<p>Yard not used.</p>' unless Project.data['yard']
+        st = Yard.stats
+        "<p>Boards pulled: #{st['boards_pulled']} (#{st['pulled_lf']} LF). Nailed into walls: #{st['installed_lf']} LF. " \
+          "Offcuts: #{st['offcut_lf']} LF. Scrap and kerf: #{st['scrap_lf']} LF. Waste: #{st['waste_pct']}% of lumber pulled.</p>"
+      end
+
+      def show_report(html)
+        dlg = UI::HtmlDialog.new(dialog_title: 'Grade Report', width: 860, height: 760,
+                                 preferences_key: 'dmacc_wf_report', style: UI::HtmlDialog::STYLE_DIALOG)
+        dlg.set_html(html)
+        dlg.show
+        if UI.messagebox('Save this report as an HTML file (opens in any browser, prints clean)?', MB_YESNO) == IDYES
+          path = UI.savepanel('Save Report', '', "#{Sketchup.active_model.title}_grade_report.html")
+          File.write(path.end_with?('.html') ? path : "#{path}.html", html) if path
+        end
+      end
+
+      def show_log
+        return unless require_instructor
+        d = Project.data
+        lines = d['log'].last(30).map { |l| "#{l['time']}  #{l['wall']}: #{l['correct']}/#{l['total']}" }
+        UI.messagebox("Inspections: #{d['log'].size}\nTakeoff checks: #{d['takeoff_log'].size}\n\n#{lines.join("\n")}")
+      end
+    end
+
+    # ---------- menus / toolbar ----------
+    unless file_loaded?(__FILE__)
+      menu = UI.menu('Extensions').add_submenu('Wall Framer')
+      menu.add_item('1. Project Setup (levels, wall types)...') { Dialogs.open_setup }
+      menu.add_item('2. Place Walls...') { draw_wall }
+      menu.add_item('3. Openings + Member List for Selected Wall...') { frame_wall }
+      menu.add_item('4. Framing (yard, saw, install tool)...') { Dialogs.open_yard; Dialogs.activate_tool }
+      menu.add_item('   Shop Drawing for Selected Wall...') { (w = Builder.selected_walls).size == 1 ? Dialogs.open_shop(w.first) : UI.messagebox('Select one wall first.') }
+      menu.add_item('5. Takeoff...') { Dialogs.open_takeoff }
+      menu.add_separator
+      menu.add_item('Change Wall Type of Selected...') { change_wall_type }
+      menu.add_item('Export Auto Cut List (CSV)...') { export_cut_list }
+      menu.add_separator
+      inst = menu.add_submenu('Instructor')
+      inst.add_item('Export Answer Key...') { export_key }
+      inst.add_item('Grade This Model Against Key...') { grade_against_key }
+      inst.add_item('Show Attempt Log') { show_log }
+      inst.add_item('Lock Again (end instructor session)') { Project.relock }
+      menu.add_separator
+      menu.add_item('Check for Updates...') { Updater.check(quiet: false) }
+      menu.add_item('Reload After Update') { Updater.reload! }
+      menu.add_item('Set Update Address...') { Updater.set_url }
+      UI.start_timer(8, false) { Updater.check(quiet: true) } # quiet check at startup
+
+      UI.add_context_menu_handler do |cm|
+        next unless Builder.selected_walls.size >= 1
+        sub = cm.add_submenu('Wall Framer')
+        if Builder.selected_walls.size == 1
+          sub.add_item('Frame This Wall (pop-ups)') { Dialogs.open_yard; Dialogs.activate_tool }
+          sub.add_item('Openings + Member List...') { frame_wall }
+          sub.add_item('Shop Drawing...') { Dialogs.open_shop(Builder.selected_walls.first) }
+        end
+        sub.add_item('Change Wall Type...') { change_wall_type }
+      end
+
+      tb = UI::Toolbar.new('Wall Framer')
+      icons = File.join(__dir__, 'icons')
+      [['Project Setup', 'setup', proc { Dialogs.open_setup }],
+       ['Place Walls', 'wall', proc { draw_wall }],
+       ['Frame Selected Wall', 'frame', proc { frame_wall }],
+       ['Framing (yard, saw, install tool)', 'yard', proc { Dialogs.open_yard; Dialogs.activate_tool }],
+       ['Takeoff', 'takeoff', proc { Dialogs.open_takeoff }]].each do |label, icon, blk|
+        cmd = UI::Command.new(label, &blk)
+        cmd.tooltip = label
+        cmd.status_bar_text = label
+        cmd.small_icon = File.join(icons, "#{icon}_24.png")
+        cmd.large_icon = File.join(icons, "#{icon}_32.png")
+        tb.add_item(cmd)
+      end
+      tb.restore
+      file_loaded(__FILE__)
+    end
+  end
+end

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Frame Wall</title>
+<style>
+  :root { --ink:#1d1d1d; --mute:#666; --line:#ccc; --bg:#f6f6f4; --err:#b3261e; --errbg:#fdecea; --ok:#1e6b34; --okbg:#e8f3ea; --hl:#fff5c2; }
+  * { box-sizing: border-box; }
+  body { font: 13px/1.4 "Segoe UI", system-ui, sans-serif; color: var(--ink); margin: 0; background: #fff; }
+  header { padding: 10px 14px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0 0 2px; }
+  header .meta { color: var(--mute); }
+  nav { display: flex; gap: 4px; padding: 8px 14px 0; border-bottom: 1px solid var(--line); }
+  nav button { border: 1px solid var(--line); border-bottom: none; background: var(--bg); padding: 6px 12px; cursor: pointer; border-radius: 4px 4px 0 0; font: inherit; }
+  nav button.on { background: #fff; font-weight: 600; position: relative; top: 1px; }
+  main { padding: 12px 14px 80px; }
+  .tab { display: none; } .tab.on { display: block; }
+  h2 { font-size: 14px; margin: 16px 0 6px; padding-bottom: 3px; border-bottom: 1px solid var(--line); }
+  .row { display: grid; gap: 6px; align-items: center; padding: 5px 4px; border-bottom: 1px solid #eee; }
+  .slot { grid-template-columns: 26px 1fr 230px 26px; }
+  .empty { color: #999; }
+  .op { grid-template-columns: 70px 90px 1fr 1fr 1fr 1fr 110px 26px; }
+  .head { font-weight: 600; color: var(--mute); font-size: 12px; border-bottom: 1px solid var(--line); }
+  .num { color: var(--mute); text-align: right; }
+  select, input { font: inherit; padding: 3px 5px; border: 1px solid #aaa; border-radius: 3px; width: 100%; background: #fff; }
+  input.bad, select.bad { border: 2px solid var(--err); background: var(--errbg); }
+  .row.err { background: var(--errbg); }
+  .row.okrow { background: var(--okbg); }
+  .row.hl { background: var(--hl); }
+  .msg { grid-column: 2 / -1; color: var(--err); font-size: 12px; }
+  .msg .hint { color: var(--ink); display: block; margin-top: 2px; }
+  .msg .fix { display: inline-block; margin-top: 3px; }
+  .icon { cursor: pointer; border: none; background: none; font-size: 14px; padding: 0; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); padding: 8px 14px; display: flex; gap: 8px; align-items: center; }
+  .bar .spacer { flex: 1; }
+  button.btn { font: inherit; padding: 6px 12px; border: 1px solid #888; background: #fff; border-radius: 4px; cursor: pointer; }
+  button.primary { background: #1d1d1d; color: #fff; border-color: #1d1d1d; }
+  .summary { padding: 8px 10px; border-radius: 4px; margin: 6px 0 10px; }
+  .summary.err { background: var(--errbg); color: var(--err); border: 1px solid #e6b8b4; }
+  .summary.ok { background: var(--okbg); color: var(--ok); border: 1px solid #b9d9c0; }
+  .errlist { margin: 4px 0 0 18px; padding: 0; }
+  .errlist a { color: var(--err); cursor: pointer; text-decoration: underline; }
+  .note { color: var(--mute); font-size: 12px; margin: 4px 0; }
+  .progress { color: var(--mute); }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Wall</h1>
+  <div class="meta" id="meta"></div>
+</header>
+<nav>
+  <button data-tab="openings" class="on">1. Openings</button>
+  <button data-tab="framing">2. Frame the wall</button>
+</nav>
+<main>
+  <section class="tab on" id="tab-openings">
+    <p class="note">Enter openings from the plans. Use the mark from the door/window schedule. Distances are measured from the wall start (the end with the arrow).</p>
+    <div id="op-errors"></div>
+    <div class="row op head"><div>Mark</div><div>Type</div><div>Position</div><div>RO width</div><div>RO height</div><div>Sill height</div><div>Header (plans)</div><div></div></div>
+    <div id="ops"></div>
+    <p><button class="btn" id="add-op">+ Add opening</button>
+      &nbsp; Position measured to:
+      <select id="pos-mode" style="width:auto"><option value="left">left edge of RO</option><option value="center">center of RO</option></select></p>
+    <p class="note">Lengths: type feet and inches like 7' 8-5/8" or inches like 92 5/8.</p>
+  </section>
+
+  <section class="tab" id="tab-framing">
+    <div id="summary"></div>
+    <p class="note">Frame this wall in the model: pull boards from the material yard, cut them, and nail them into the gray layout marks with the install tool. This list shows what is nailed in where. <span class="progress" id="progress"></span></p>
+    <div class="row slot head"><div>#</div><div>Location</div><div>Nailed in</div><div></div></div>
+    <div id="slots"></div>
+  </section>
+</main>
+<div class="bar">
+  <span id="status" class="note"></span>
+  <span class="spacer"></span>
+  <button class="btn" id="save-ops">Save openings</button>
+  <button class="btn" id="shop" style="display:none">Shop drawing</button>
+  <button class="btn" id="save-entries" style="display:none">Go frame it (yard + tools)</button>
+  <button class="btn primary" id="inspect" style="display:none">Request inspection</button>
+</div>
+
+<script>
+var S = null;           // state from Ruby
+var issuesBySlot = {};  // slot_id -> issue
+
+function $(id) { return document.getElementById(id); }
+function el(tag, attrs, kids) {
+  var e = document.createElement(tag);
+  for (var k in (attrs || {})) {
+    if (k === 'text') e.textContent = attrs[k];
+    else if (k === 'html') e.innerHTML = attrs[k];
+    else if (k.slice(0, 2) === 'on') e.addEventListener(k.slice(2), attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  }
+  (kids || []).forEach(function (c) { if (c) e.appendChild(c); });
+  return e;
+}
+function options(sel, list, value, blank) {
+  if (blank) sel.appendChild(el('option', { value: '', text: blank }));
+  list.forEach(function (v) {
+    var o = el('option', { value: v, text: v });
+    if (v === value) o.selected = true;
+    sel.appendChild(o);
+  });
+  return sel;
+}
+function call(name, payload) {
+  $('status').textContent = 'Working...';
+  sketchup[name](JSON.stringify(payload || {}));
+}
+
+// ---------- tabs ----------
+document.querySelectorAll('nav button').forEach(function (b) {
+  b.addEventListener('click', function () { showTab(b.dataset.tab); });
+});
+function showTab(t) {
+  document.querySelectorAll('nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
+  document.querySelectorAll('.tab').forEach(function (s) { s.classList.toggle('on', s.id === 'tab-' + t); });
+  $('save-ops').style.display = t === 'openings' ? '' : 'none';
+  $('save-entries').style.display = t === 'framing' ? '' : 'none';
+  $('shop').style.display = t === 'framing' ? '' : 'none';
+  $('inspect').style.display = t === 'framing' ? '' : 'none';
+}
+
+// ---------- openings ----------
+function opRow(o) {
+  var r = el('div', { 'class': 'row op' });
+  r.appendChild(el('input', { value: o.mark || '', placeholder: 'W1', 'data-k': 'mark', 'aria-label': 'Mark' }));
+  var t = options(el('select', { 'data-k': 'type', 'aria-label': 'Type' }), ['Window', 'Door'], o.type || 'Window');
+  r.appendChild(t);
+  ['x_text', 'width_text', 'height_text', 'sill_text'].forEach(function (k) {
+    r.appendChild(el('input', { value: o[k] || '', 'data-k': k, 'aria-label': k }));
+  });
+  r.appendChild(options(el('select', { 'data-k': 'header', 'aria-label': 'Header' }), S.header_choices, o.header || 'Not shown'));
+  r.appendChild(el('button', { 'class': 'icon', title: 'Remove opening', text: '✕', onclick: function () { r.remove(); } }));
+  return r;
+}
+function readOps() {
+  var out = [];
+  document.querySelectorAll('#ops .row').forEach(function (r) {
+    var o = {};
+    r.querySelectorAll('[data-k]').forEach(function (f) { o[f.dataset.k] = f.value; });
+    out.push(o);
+  });
+  return out;
+}
+$('add-op').addEventListener('click', function () { $('ops').appendChild(opRow({})); });
+$('save-ops').addEventListener('click', function () {
+  call('save_openings', { openings: readOps(), pos_mode: $('pos-mode').value });
+});
+
+// ---------- slots ----------
+function slotRow(s, n) {
+  var r = el('div', { 'class': 'row slot' + (s.flagged ? ' err' : ''), id: 'slot-' + s.id, 'data-id': s.id, 'data-done': s.installed ? '1' : '' });
+  r.appendChild(el('div', { 'class': 'num', text: n }));
+  r.appendChild(el('div', { text: s.label }));
+  r.appendChild(el('div', { 'class': s.installed ? '' : 'empty', text: s.installed || 'open' }));
+  r.appendChild(el('button', { 'class': 'icon', title: 'Show in model', text: '🔍', onclick: function () { call('zoom', { slot: s.id }); markHl(s.id); } }));
+  return r;
+}
+function renderSlots() {
+  var box = $('slots');
+  box.innerHTML = '';
+  var group = null, n = 0;
+  S.slots.forEach(function (s) {
+    if (s.group !== group) { group = s.group; box.appendChild(el('h2', { text: group })); }
+    n += 1;
+    box.appendChild(slotRow(s, n));
+  });
+  updateProgress();
+}
+function readEntries() {
+  var out = {};
+  document.querySelectorAll('#slots .row').forEach(function (r) {
+    var e = {};
+    r.querySelectorAll('[data-k]').forEach(function (f) { e[f.dataset.k] = f.value; });
+    if (e.role || e.size || e.length) out[r.dataset.id] = e;
+  });
+  return out;
+}
+function updateProgress() {
+  var rows = document.querySelectorAll('#slots .row'), done = 0;
+  rows.forEach(function (r) { if (r.dataset.done) done += 1; });
+  $('progress').textContent = done + ' of ' + rows.length + ' locations framed.';
+}
+function markHl(id) {
+  document.querySelectorAll('#slots .row').forEach(function (r) { r.classList.toggle('hl', r.dataset.id === id); });
+}
+function clearIssue(id) {
+  var r = $('slot-' + id);
+  if (!r) return;
+  r.classList.remove('err');
+  var m = r.querySelector('.msg'); if (m) m.remove();
+}
+$('save-entries').addEventListener('click', function () { call('go_frame', {}); });
+$('shop').addEventListener('click', function () { call('shop', {}); });
+$('inspect').addEventListener('click', function () { call('inspect', {}); });
+
+// ---------- inspection results ----------
+function showInspection(res) {
+  issuesBySlot = {};
+  document.querySelectorAll('#slots .row').forEach(function (r) { clearIssue(r.dataset.id); r.classList.remove('okrow'); });
+  var box = $('summary');
+  box.innerHTML = '';
+  if (!res) return;
+  var passed = res.correct === res.total;
+  var sum = el('div', { 'class': 'summary ' + (passed ? 'ok' : 'err') });
+  sum.appendChild(el('strong', { text: res.summary }));
+  if (res.issues.length) {
+    sum.appendChild(el('div', { text: 'Fix these, then request inspection again:' }));
+    var ul = el('ul', { 'class': 'errlist' });
+    res.issues.forEach(function (i) {
+      issuesBySlot[i.slot_id] = i;
+      ul.appendChild(el('li', {}, [el('a', { text: i.label + ' - ' + i.message, onclick: function () { goTo(i.slot_id); } })]));
+    });
+    sum.appendChild(ul);
+  } else if (!passed && res.level === 'count') {
+    sum.appendChild(el('div', { text: 'Your instructor has set feedback to count only. Re-check your work against the plans.' }));
+  }
+  box.appendChild(sum);
+  res.issues.forEach(function (i) {
+    var r = $('slot-' + i.slot_id);
+    if (!r) return;
+    r.classList.add('err');
+    var m = el('div', { 'class': 'msg', text: i.message });
+    if (i.hint) m.appendChild(el('span', { 'class': 'hint', text: 'Why: ' + i.hint }));
+    if (i.fix) {
+      var fx = el('span', { 'class': 'fix' });
+      fx.appendChild(document.createTextNode('Should be: ' + i.fix.size + ' x ' + i.fix.length_text + ' (' + i.fix.role + ')'));
+
+      m.appendChild(fx);
+    }
+    r.appendChild(m);
+  });
+}
+function goTo(id) {
+  var r = $('slot-' + id);
+  if (r) { r.scrollIntoView({ block: 'center' }); markHl(id); }
+  call('zoom', { slot: id });
+}
+function applyFix(i) {
+  var r = $('slot-' + i.slot_id);
+  r.querySelector('[data-k="role"]').value = i.fix.role;
+  r.querySelector('[data-k="size"]').value = i.fix.size;
+  r.querySelector('[data-k="length"]').value = i.fix.length_text;
+  clearIssue(i.slot_id); updateProgress();
+}
+
+// ---------- called from Ruby ----------
+function load(state) {
+  S = state;
+  $('title').textContent = state.wall.id + ' - ' + state.wall.type;
+  $('meta').textContent = state.wall.level + '  |  ' + state.wall.length_text + ' long  |  ' +
+    state.wall.stud + ' @ ' + state.wall.spacing + '" O.C.  |  ' + state.wall.height_text + ' overall height';
+  $('ops').innerHTML = '';
+  state.openings.forEach(function (o) { $('ops').appendChild(opRow(o)); });
+  $('pos-mode').value = state.pos_mode || 'left';
+  if (state.prefill) {
+    var r = opRow({ x_text: state.prefill.x_text });
+    $('ops').appendChild(r);
+    showTab('openings');
+    setTimeout(function () { r.querySelector('[data-k=mark]').focus(); }, 50);
+  }
+  renderSlots();
+  showInspection(state.inspection);
+  $('status').textContent = '';
+}
+function openingErrors(errs) {
+  var b = $('op-errors');
+  b.innerHTML = '';
+  if (!errs.length) { $('status').textContent = 'Openings saved.'; return; }
+  var s = el('div', { 'class': 'summary err' }, [el('strong', { text: "Openings not saved - fix these:" })]);
+  var ul = el('ul', { 'class': 'errlist' });
+  errs.forEach(function (e) { ul.appendChild(el('li', { text: e })); });
+  s.appendChild(ul); b.appendChild(s);
+  $('status').textContent = '';
+}
+function entryErrors(errs) {
+  // errs: {slot_id: message} for lengths we couldn't read
+  var n = 0;
+  for (var id in errs) {
+    n += 1;
+    var r = $('slot-' + id); if (!r) continue;
+    r.classList.add('err');
+    r.querySelector('[data-k="length"]').classList.add('bad');
+    r.appendChild(el('div', { 'class': 'msg', text: errs[id] }));
+  }
+  $('status').textContent = n ? n + " length(s) couldn't be read - see red rows." : 'Members installed.';
+}
+function setStatus(t) { $('status').textContent = t; }
+function afterOps() { showTab('framing'); }
+
+window.onload = function () { sketchup.ready(''); };
+</script>
+</body>
+</html>
