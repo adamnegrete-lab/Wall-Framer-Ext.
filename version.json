@@ -1,5 +1,5 @@
 {
-  "version": "0.11.0",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.11.0.rbz",
-  "notes": "Frame openings first (kings, header mark on the kings, jacks, header, sill), then studs, then cripples and header blocks on your layout. Header size set once from the plans; RFIs answer themselves. Flat headers for interior doors. Partition backing at tees. Layout can pull from either end. Double plates go on piece by piece."
+  "version": "0.11.1",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.11.1.rbz",
+  "notes": "Fix: right-click to take off a double top plate piece works again (also from Frame mode)."
 }

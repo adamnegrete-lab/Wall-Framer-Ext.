@@ -58,9 +58,17 @@ chk(Builder.dtp_free(id.('W-101')).size == 1 && !Builder.params_of(id.('W-101'))
 # right-click takes off just that piece
 top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V)
 menu = Struct.new(:items) { def add_item(t, &b) = items << [t, b] }.new([]); tool.getMenu(menu)
-chk(menu.items.first && menu.items.first[0].include?('piece #4'), "right-click names the piece: #{menu.items.map(&:first)}")
+chk(menu.items.size == 1 && menu.items.first[0].include?('piece #4'), "right-click names the piece: #{menu.items.map(&:first)}")
+V.ray = [Geom::Point3d.new(-5000, -5000, 500), Geom::Vector3d.new(0, 0, -1)]; tool.onMouseMove(0,0,0,V) # cursor goes onto the menu
 menu.items.first[1].call
-chk(Builder.dtp_free(id.('W-101')).size == 2, 'piece came off')
+chk(Builder.dtp_free(id.('W-101')).size == 2, 'piece came off even with the cursor off the wall')
+# from Frame mode too: right-click a double plate lists that wall's pieces
+top.(id.('W-102')); tool.onMouseMove(0,0,0,V)
+tool.set_mode(:nail); slot2 = Builder.work_slots(Builder.params_of(id.('W-102'))).find { |x| x.id == 'TP:2' }
+tool.instance_variable_set(:@target, [id.('W-102'), slot2, Builder.params_of(id.('W-102'))])
+m2 = Struct.new(:items) { def add_item(t, &b) = items << [t, b] }.new([]); tool.getMenu(m2)
+chk(m2.items.size == 1 && m2.items[0][0].include?('W-102 double plate piece'), "Frame mode right-click offers the piece: #{m2.items.map(&:first)}")
+tool.set_mode(:dtp)
 [60, 160].each { |x| top.(id.('W-101'), x); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
 Builder.dtp_free(id.('W-103')).each { |a, b| top.(id.('W-103'), (a + b) / 2); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
 yd.fire('check_interlock'); b = yd.last('load')['building']

@@ -104,7 +104,7 @@ puts "   blockers: #{Builder.dtp_blockers('Level 1')}"
 chk(Builder.place_dtp(id.('W-102'), 60).nil?, 'double plate piece on')
 slot = Builder.work_slots(Builder.params_of(id.('W-102'))).find { |x| x.id == 'TP:2' }
 tool.pull(id.('W-102'), slot)
-chk(Builder.params_of(id.('W-102'))['entries']['TP:2'] && Sketchup.status_text.include?('Double top plates mode'), 'Frame mode refuses to pull a double plate')
+chk(Builder.params_of(id.('W-102'))['entries']['TP:2'] && Sketchup.status_text.include?('Right-click the double plate'), 'Frame mode never pulls a double plate whole')
 chk(Builder.dtp_order == ['W-102'], 'order has no ghosts')
 
 # ---- legacy double plate data migrates to pieces ----

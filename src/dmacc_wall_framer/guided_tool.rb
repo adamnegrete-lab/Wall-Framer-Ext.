@@ -573,9 +573,9 @@ module DMACC
       end
 
       def pull(group, slot)
-        if slot.id == 'TP:2'
+        if slot.id == 'TP:2' # never pulled as one piece here - see add_dtp_items
           UI.beep
-          Sketchup.status_text = 'Double top plates come off in Double top plates mode (top view), one piece at a time.'
+          Sketchup.status_text = 'Right-click the double plate and pick the piece to take off.'
           return
         end
         model = Sketchup.active_model

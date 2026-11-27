@@ -355,25 +355,49 @@ module DMACC
       def getMenu(menu, _flags = nil, x = nil, y = nil, view = nil)
         pick(view, x, y) if view && x
         if @mode == :dtp && @dtp
-          g = @dtp[0]
-          if (sp = Builder.dtp_piece_at(g, @dtp[2]))
-            menu.add_item("Take off #{Builder.params_of(g)['id']} double plate piece ##{sp['n']}") do
-              m = Sketchup.active_model
-              m.start_operation('Remove Double Plate', true)
-              Builder.remove_dtp(g, @dtp[2])
-              m.commit_operation
-              Dialogs.refresh_yard
-              Dialogs.refresh_frame
-            end
-          end
+          g, _t, lx = @dtp
+          add_dtp_items(menu, g, lx)
           return
         end
         return unless @target
         g, slot, p = @target
         e = (p['entries'] || {})[slot.id]
         return unless Inspector.complete?(e)
-        return if slot.id == 'TP:2' # double plates come off in Double top plates mode
+        if slot.id == 'TP:2'
+          add_dtp_items(menu, g, nil) # double plates come off piece by piece
+          return
+        end
         menu.add_item("Pull this piece out (#{slot.label})") { pull(g, slot) }
+      end
+
+      # Right-click on a double plate: the piece under the cursor, or (if none is
+      # right there) every piece on that wall. The piece is fixed now, at the
+      # right-click - by the time a menu item is clicked the cursor is on the menu.
+      def add_dtp_items(menu, g, lx)
+        p = Builder.params_of(g)
+        spans, = Builder.dtp_spans(p['level'])
+        list = spans[p['id']] || []
+        hit = lx && list.find { |sp| lx >= sp['a'] - 0.5 && lx <= sp['b'] + 0.5 }
+        (hit ? [hit] : list).each do |sp|
+          at = (sp['a'] + sp['b']) / 2.0
+          menu.add_item("Take off #{p['id']} double plate piece ##{sp['n']} (#{Framing.fmt_len(sp['b'] - sp['a'])})") do
+            take_off_dtp(g, at)
+          end
+        end
+      end
+
+      def take_off_dtp(g, at)
+        m = Sketchup.active_model
+        m.start_operation('Remove Double Plate', true)
+        rec = Builder.remove_dtp(g, at)
+        m.commit_operation
+        Sketchup.status_text = rec ? "Took off #{Builder.params_of(g)['id']} double plate piece ##{rec['n']} - the board went back on the cart." : 'No double plate there.'
+        Dialogs.refresh_yard
+        Dialogs.refresh_frame
+        m.active_view.invalidate
+      rescue StandardError => e
+        m.abort_operation rescue nil
+        UI.messagebox("Couldn't take that double plate off: #{e.message}")
       end
 
       def pull(group, slot)
