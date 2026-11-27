@@ -193,10 +193,19 @@ module DMACC
           Sketchup.status_text = 'Click the top of a wall.'
           return
         end
-        g = @dtp[0]
+        g, _t, lx = @dtp
+        # Clicking a piece that's already on: take it off (asks first)
+        if (on = Builder.dtp_piece_at(g, lx))
+          id = Builder.params_of(g)['id']
+          len = Framing.fmt_len(on['b'] - on['a'])
+          if UI.messagebox("Take off #{id} double plate piece ##{on['n']} (#{len})?", MB_YESNO) == IDYES
+            take_off_dtp(g, (on['a'] + on['b']) / 2.0)
+          end
+          return
+        end
         model = Sketchup.active_model
         model.start_operation('Double Top Plate', true)
-        err = Builder.place_dtp(g, @dtp[2])
+        err = Builder.place_dtp(g, lx)
         model.commit_operation
         id = Builder.params_of(g)['id']
         if err
@@ -207,7 +216,7 @@ module DMACC
           left = Builder.dtp_free(g).size
           Sketchup.status_text = "#{id} double plate piece on (##{sp ? sp['n'] : '?'})." +
                                  (left.positive? ? " #{left} more piece#{left == 1 ? '' : 's'} to go on #{id}." : '') +
-                                 ' Right-click a piece to take it off.'
+                                 ' Click a piece that is on to take it off.'
         end
         Dialogs.refresh_yard
         Dialogs.refresh_frame
@@ -352,7 +361,14 @@ module DMACC
         view.invalidate
       end
 
-      def getMenu(menu, _flags = nil, x = nil, y = nil, view = nil)
+      def getMenu(menu, flags = nil, x = nil, y = nil, view = nil)
+        menu_items(menu, flags, x, y, view)
+      rescue StandardError => e
+        puts "Wall Framer right-click menu: #{e.class}: #{e.message}\n  #{e.backtrace.first(4).join("\n  ")}"
+        nil
+      end
+
+      def menu_items(menu, _flags = nil, x = nil, y = nil, view = nil)
         pick(view, x, y) if view && x
         if @mode == :dtp && @dtp
           g, _t, lx = @dtp
@@ -478,7 +494,7 @@ module DMACC
         return unless sp
         draw_box(view, g.transformation, [sp['a'], 0, z - Framing::T], [sp['b'], d, z], placed ? 'red' : 'orange', 3)
         nxt = Builder.dtp_seq.count { |r| (w = Builder.find_wall(r['wall'])) && Builder.params_of(w)['level'] == p['level'] } + 1
-        msg = placed ? "piece ##{placed['n']} is on (right-click to take it off)" : "click to set this piece (##{nxt}) - #{Framing.fmt_len(sp['b'] - sp['a'])}"
+        msg = placed ? "piece ##{placed['n']} is on (click to take it off)" : "click to set this piece (##{nxt}) - #{Framing.fmt_len(sp['b'] - sp['a'])}"
         mid = Geom::Point3d.new((sp['a'] + sp['b']) / 2.0, d, z).transform(g.transformation)
         view.draw_text(view.screen_coords(mid), "  #{p['id']}: #{msg}")
       end
@@ -541,7 +557,7 @@ module DMACC
           case @mode
           when :layout then 'MARK STUD LAYOUT: click the top of the bottom plate where each common stud centers (snap to Tape Measure guides). Click a mark again to remove it. Tab = next mode.'
           when :opening then 'MARK OPENING: click the opening centerline on the bottom plate (snap to a Tape Measure guide), then fill in the opening. Tab = next mode.'
-          when :dtp then 'DOUBLE TOP PLATES: click each piece in the order it goes on. The first plate at a corner or tee laps over it - and splits the wall it laps into into separate pieces. Right-click a piece to take it off.'
+          when :dtp then 'DOUBLE TOP PLATES: click each piece in the order it goes on. The first plate at a corner or tee laps over it - and splits the wall it laps into into separate pieces. Click a piece that is on to take it off.'
           else "NAIL: #{saw_text}. Click a layout mark to nail. Type a length to set the stop (full = no cut, o = offcuts first). Tab = next mode."
           end
       end

@@ -62,6 +62,15 @@ chk(menu.items.size == 1 && menu.items.first[0].include?('piece #4'), "right-cli
 V.ray = [Geom::Point3d.new(-5000, -5000, 500), Geom::Vector3d.new(0, 0, -1)]; tool.onMouseMove(0,0,0,V) # cursor goes onto the menu
 menu.items.first[1].call
 chk(Builder.dtp_free(id.('W-101')).size == 2, 'piece came off even with the cursor off the wall')
+# left-click a piece that's on: asks, then takes it off
+UI.answers[:msg] = IDYES
+top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) # on
+chk(Builder.dtp_free(id.('W-101')).size == 1, 'piece on')
+top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) # click it again
+chk(UI.messages.last.to_s.include?('Take off W-101 double plate piece') && Builder.dtp_free(id.('W-101')).size == 2, "click a placed piece -> asks and takes it off: #{UI.messages.last}")
+top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
+chk(Builder.dtp_free(id.('W-101')).size == 1, 'click again puts it back on')
+top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) # off again for the steps below
 # from Frame mode too: right-click a double plate lists that wall's pieces
 top.(id.('W-102')); tool.onMouseMove(0,0,0,V)
 tool.set_mode(:nail); slot2 = Builder.work_slots(Builder.params_of(id.('W-102'))).find { |x| x.id == 'TP:2' }

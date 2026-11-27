@@ -1,5 +1,5 @@
 {
-  "version": "0.11.1",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.11.1.rbz",
-  "notes": "Fix: right-click to take off a double top plate piece works again (also from Frame mode)."
+  "version": "0.11.2",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.11.2.rbz",
+  "notes": "Double top plates: click a piece that's on to take it off (asks first). Right-click still works as a backup."
 }

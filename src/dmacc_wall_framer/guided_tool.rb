@@ -556,7 +556,7 @@ module DMACC
         Dialogs.refresh_yard
       end
 
-      def getMenu(menu, flags = nil, x = nil, y = nil, view = nil)
+      def menu_items(menu, flags = nil, x = nil, y = nil, view = nil)
         pick(view, x, y) if view && x
         if @mark && @mark[5]
           g, = @mark

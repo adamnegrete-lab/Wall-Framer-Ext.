@@ -145,7 +145,7 @@ function renderBuilding(b) {
     return;
   }
   box.appendChild(el('div', { 'class': 'note', text: b.placed.length + ' of ' + b.walls + ' on' + (b.placed.length ? ' - order: ' + b.placed.join(', ') : '') +
-    '. Click each piece in the order it goes on - the first plate at a corner or tee laps over it, and splits the wall it laps into into separate pieces.' }));
+    '. Click each piece in the order it goes on - the first plate at a corner or tee laps over it, and splits the wall it laps into into separate pieces. Click a piece that is on to take it off.' }));
   box.appendChild(el('div', { 'class': 'btns' }, [
     el('button', { 'class': S.mode === 'dtp' ? 'primary' : '', text: 'Top view: place double plates', onclick: function () { call('dtp'); } }),
     el('button', { text: 'Check interlock', onclick: function () { call('check_interlock'); } })]));
