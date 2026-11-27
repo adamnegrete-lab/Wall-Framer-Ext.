@@ -67,7 +67,8 @@ module DMACC
           d.add_action_callback('ready') { |_c, _a| send_frame }
           d.add_action_callback('save_openings') { |_c, a| save_openings(JSON.parse(a)) }
           d.add_action_callback('save_entries') { |_c, a| save_entries(JSON.parse(a)['entries']) }
-          d.add_action_callback('inspect') { |_c, _a| request_inspection(nil) }
+          d.add_action_callback('inspect') { |_c, _a| inspect_focus_level }
+          d.add_action_callback('frame_next') { |_c, _a| frame_next }
           d.add_action_callback('go_frame') { |_c, _a| open_yard; Sketchup.active_model.select_tool(InstallTool.new) }
           d.add_action_callback('shop') { |_c, _a| (g = frame_group) && open_shop(g) }
           d.add_action_callback('zoom') { |_c, a| zoom(JSON.parse(a)['slot']) }
@@ -131,7 +132,7 @@ module DMACC
           when 'units' then 'Next: frame each opening - kings, jacks, header, sill.'
           when 'commons' then 'Next: corners, stud spacing and common studs.'
           when 'cripples' then 'Next: cripples under the sills and header blocks - they land on your layout.'
-          else Builder.on_table?(Builder.find_wall(p['id'])) ? 'Framed. Click Build and stand wall when you are ready (inspect first if you want).' : 'Framed.'
+          else Builder.on_table?(Builder.find_wall(p['id'])) ? 'Framed. Click Build and stand wall, then Frame next wall.' : 'Framed.'
           end
         end
 
@@ -364,6 +365,59 @@ module DMACC
                                  'wrong' => full['wrong'], 'blank' => full['blank'], 'summary' => "#{res['summary']}#{note}")
           res['summary'] = "#{res['summary']}#{note}"
           res
+        end
+
+        # A framing inspection covers a whole level: every wall framed, standing, double plates on.
+        # Returns a message for the student.
+        def inspect_level(level)
+          left = Builder.level_inspection_blockers(level)
+          unless left.empty?
+            return "Inspection opens when all framing on #{level} is done - every wall framed and standing, " \
+                   "double top plates on. Still open: #{left.first(5).join(', ')}#{left.size > 5 ? ", +#{left.size - 5} more" : ''}."
+          end
+          ws = Builder.all_walls.select { |w| Builder.params_of(w)['level'] == level }
+          res = nil
+          operation("Inspect #{level}") { res = ws.map { |w| inspect_group(w) } }
+          return 'Inspection could not run.' unless res
+          bad = res.select { |r| r['correct'] != r['total'] }
+          if bad.empty?
+            "#{level} passed inspection - every wall."
+          else
+            "#{level}: #{bad.size} of #{res.size} walls have problems (red in the model): #{bad.map { |r| r['wall_id'] || r['summary'].split(':').first }.join(', ')}. Fix them and request again."
+          end
+        end
+
+        def inspect_focus_level
+          g = focus_group or return 'Place some walls first.'
+          msg = inspect_level(Builder.params_of(g)['level'])
+          Sketchup.status_text = msg
+          js(@yard, 'setStatus', msg) if @yard&.visible?
+          js(@frame, 'setStatus', msg) if @frame&.visible?
+          refresh_yard
+          refresh_frame
+          msg
+        end
+
+        # Frame Wall form: move on to the next wall in order (stands this one up first if it's framed).
+        def frame_next
+          g = frame_group or return
+          activate_tool
+          if Builder.on_table?(g) && Builder.stage(Builder.params_of(g)) == 'framed' && @tool.respond_to?(:stand_up)
+            @tool.stand_up(g)
+          end
+          nxt = Builder.next_wall_after(g)
+          unless nxt
+            lv = Builder.params_of(g)['level']
+            js(@frame, 'setStatus', "Every wall is framed and standing. Next: double top plates, then request inspection for #{lv}.")
+            return
+          end
+          if @tool.respond_to?(:to_table) && @tool.to_table?(nxt)
+            @tool.to_table(nxt)
+          else
+            focus_wall(Builder.params_of(nxt)['id'])
+            open_frame(nxt)
+          end
+          send_frame
         end
 
         def zoom(slot_id)
@@ -648,10 +702,8 @@ module DMACC
             send_yard
           end
           d.add_action_callback('inspect') do |_c, _a|
-            g = focus_group or next
-            operation('Request Inspection') { inspect_group(g) }
+            inspect_focus_level
             send_yard
-            refresh_frame
           end
           d.add_action_callback('shop') { |_c, _a| (g = focus_group) && open_shop(g) }
           d.add_action_callback('openings') { |_c, _a| (g = focus_group) && open_frame(g) }

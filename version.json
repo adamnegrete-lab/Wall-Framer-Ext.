@@ -1,5 +1,5 @@
 {
-  "version": "0.17.0",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.17.0.rbz",
-  "notes": "RFIs are off. Header table built in: a Header table button in the Openings section shows the SFPA tables (roof only, and roof + one floor)."
+  "version": "0.18.0",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.18.0.rbz",
+  "notes": "Frame next wall button (exterior walls clockwise from W-101, then interiors). Inspection covers a whole level and opens once every wall is framed, standing and double-plated."
 }

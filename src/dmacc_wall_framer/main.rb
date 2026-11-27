@@ -272,9 +272,8 @@ module DMACC
 
       def inspect_tool
         Builder.close_edits
-        g = Dialogs.focus_group or return UI.messagebox('Place some walls first.')
-        Dialogs.operation('Request Inspection') { Dialogs.inspect_group(g) }
         Dialogs.open_yard
+        Dialogs.inspect_focus_level
         Dialogs.refresh_yard
         Dialogs.refresh_frame
       end

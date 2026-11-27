@@ -653,9 +653,9 @@ module DMACC
                                when 'cripples' then "#{id}: studs are in. Cripples and header blocks land on your layout - fill in their lengths."
                                when 'framed'
                                  if Builder.on_table?(g)
-                                   "#{id} is framed. Inspect it while it's flat if you want, then click Build and stand wall in the Frame Wall form."
+                                   "#{id} is framed. Click Build and stand wall, then Frame next wall."
                                  else
-                                   "#{id} is framed. Request an inspection from the Framing panel."
+                                   "#{id} is framed. Inspection opens once every wall on the level is framed, standing and double-plated."
                                  end
                                else Sketchup.status_text
                                end
@@ -895,7 +895,7 @@ module DMACC
             else "#{p['id']}: click each end of the wall to choose its corner assembly, then pick the stud spacing - the studs lay out and nail themselves."
             end
           when 'cripples' then "#{p['id']}: cripples and header blocks, on your stud layout. Next: #{nxt.join(', ')}."
-          else "#{p['id']} is framed. Request an inspection from the Framing panel."
+          else "#{p['id']} is framed. Click Frame next wall."
           end
       end
     end

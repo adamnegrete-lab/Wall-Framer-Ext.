@@ -525,6 +525,57 @@ module DMACC
         all_walls.select { |w| params_of(w)['level'] == level && params_of(w)['top_plates'].to_i == 2 }
       end
 
+      # Framing order on the job: levels bottom up; on each level the exterior walls
+      # clockwise from the front door wall (the level's first wall, W-101), then the interiors.
+      def framing_order
+        levels = all_walls.map { |w| params_of(w)['level'] }.uniq
+        elev = ->(lv) { (Project.level(lv) || {})['elev'].to_f }
+        levels.sort_by { |lv| elev.call(lv) }.flat_map do |lv|
+          ws = all_walls.select { |w| params_of(w)['level'] == lv }
+          ext, int = ws.partition { |w| params_of(w)['function'].to_s.downcase.start_with?('ext') }
+          mid = lambda do |w|
+            a, b = endpoints(w)
+            [(a.x + b.x) / 2.0, (a.y + b.y) / 2.0]
+          end
+          ordered = []
+          unless ext.empty?
+            ms = ext.map { |w| mid.call(w) }
+            cx = ms.sum { |m| m[0] } / ms.size
+            cy = ms.sum { |m| m[1] } / ms.size
+            ang = ->(w) { m = mid.call(w); Math.atan2(m[1] - cy, m[0] - cx) }
+            front = ext.min_by { |w| params_of(w)['id'].to_s }
+            a0 = ang.call(front)
+            # clockwise = angle going down from the front wall
+            ordered = ext.sort_by { |w| [((a0 - ang.call(w)) % (2 * Math::PI)).round(6), params_of(w)['id'].to_s] }
+          end
+          ordered + int.sort_by { |w| params_of(w)['id'].to_s }
+        end
+      end
+
+      def framed_and_standing?(w)
+        stage(params_of(w)) == 'framed' && !on_table?(w)
+      end
+
+      # The next wall to frame after this one (nil = every wall is framed and standing).
+      def next_wall_after(w)
+        order = framing_order
+        i = order.index(w) || -1
+        (order[(i + 1)..] + order[0..i]).find { |x| x != w && !framed_and_standing?(x) }
+      end
+
+      # Why this level can't be inspected yet (nil = ready): every wall framed,
+      # standing, and its double top plate on.
+      def level_inspection_blockers(level)
+        all_walls.select { |w| params_of(w)['level'] == level }.filter_map do |w|
+          p = params_of(w)
+          next "#{p['id']} (not framed)" unless stage(p) == 'framed'
+          next "#{p['id']} (still on the table)" if on_table?(w)
+          next nil unless p['top_plates'].to_i == 2
+          dtp = work_slots(p).find { |s| s.id == 'TP:2' }
+          dtp && !Inspector.slot_done?(dtp, (p['entries'] || {})['TP:2']) ? "#{p['id']} (double top plate)" : nil
+        end
+      end
+
       # Placing order, one record per piece: { 'wall', 'x', 'len', 'pieces' }.
       def dtp_seq
         d = Project.data

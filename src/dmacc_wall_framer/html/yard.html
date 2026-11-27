@@ -181,7 +181,7 @@ function renderWall(w) {
     return el('button', { 'class': S.mode === m ? 'primary' : '', text: names[m], onclick: function () { call('mode', { mode: m }); } });
   })));
   box.appendChild(el('div', { 'class': 'btns' }, [
-    el('button', { 'class': 'primary', text: 'Request inspection', onclick: function () { call('inspect'); } }),
+    el('button', { 'class': 'primary', text: 'Request inspection (whole level)', onclick: function () { call('inspect'); } }),
     el('button', { text: 'Shop drawing', onclick: function () { call('shop'); } }),
     el('button', { text: 'Openings', onclick: function () { call('openings'); } })
   ]));

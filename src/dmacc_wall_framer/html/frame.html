@@ -119,6 +119,7 @@
   <button class="btn" id="save-entries" style="display:none">Go frame it (yard + tools)</button>
   <button class="btn primary" id="stand" style="display:none">Build and stand wall</button>
   <button class="btn primary" id="inspect" style="display:none">Request inspection</button>
+  <button class="btn" id="next-wall" style="display:none">Frame next wall</button>
 </div>
 
 <script>
@@ -163,7 +164,8 @@ function showTab(t) {
   $('no-ops').style.display = t === 'openings' && !document.querySelectorAll('#ops .row').length ? '' : 'none';
   $('save-entries').style.display = t === 'framing' ? '' : 'none';
   $('shop').style.display = t === 'framing' ? '' : 'none';
-  $('inspect').style.display = t === 'framing' || t === 'cutlist' ? '' : 'none';
+  $('inspect').style.display = t === 'framing' ? '' : 'none';
+  $('next-wall').style.display = t === 'cutlist' ? '' : 'none';
   $('stand').style.display = t === 'cutlist' && S && S.ready_to_build ? '' : 'none';
   if (S && S.guided) {
     $('save-ops').style.display = 'none'; $('no-ops').style.display = 'none';
@@ -361,6 +363,7 @@ function rowsUpdate(u) {
   showTab(document.querySelector('nav button.on').dataset.tab);
 }
 $('stand').addEventListener('click', function () { call('build_stand', {}); });
+$('next-wall').addEventListener('click', function () { call('frame_next', {}); });
 $('save-ops2').addEventListener('click', function () { $('save-ops').click(); });
 $('no-ops2').addEventListener('click', function () { $('no-ops').click(); });
 
