@@ -559,10 +559,17 @@ module DMACC
       end
 
       # The next wall to frame after this one (nil = every wall is framed and standing).
+      # Stays on this wall's level; the next level opens once this one is framed,
+      # double-plated and inspected-ready (like decking over before framing upstairs).
       def next_wall_after(w)
+        lv = params_of(w)['level']
         order = framing_order
         i = order.index(w) || -1
-        (order[(i + 1)..] + order[0..i]).find { |x| x != w && !framed_and_standing?(x) }
+        rest = (order[(i + 1)..] + order[0..i]).reject { |x| x == w || framed_and_standing?(x) }
+        same = rest.find { |x| params_of(x)['level'] == lv }
+        return same if same
+        return nil unless level_inspection_blockers(lv).empty?
+        rest.first
       end
 
       # Why this level can't be inspected yet (nil = ready): every wall framed,
@@ -1029,7 +1036,24 @@ module DMACC
 
       # ---------- rebuilding ----------
 
+      # Hold redraws while a batch of pieces goes in; each wall redraws once at the end.
+      def deferring_rebuilds
+        return yield if @deferred # already inside a batch
+        @deferred = []
+        begin
+          yield
+        ensure
+          pending = @deferred.uniq
+          @deferred = nil
+          pending.each { |g| rebuild(g) unless g.deleted? }
+        end
+      end
+
       def rebuild(group)
+        if @deferred
+          @deferred << group
+          return
+        end
         model = Sketchup.active_model
         params = params_of(group)
         table = Project.header_table

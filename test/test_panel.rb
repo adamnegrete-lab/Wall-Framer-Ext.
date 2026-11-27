@@ -75,6 +75,9 @@ it = yd.last('load')['notes']['items'].first
 chk(it['kind'] == 'Note' && it['unseen'], 'instructor job note posted and shows as new')
 # inspection shows up in Job Notes
 yd.fire('inspect')
+chk(Sketchup.status_text.include?('Inspection opens'), 'inspection waits until the whole level is framed')
+Dialogs.inspect_group(Builder.find_wall('W-101'))
+yd.fire('ready')
 chk(yd.last('load')['notes']['items'].any? { |i| i['kind'] == 'Inspection' && i['lines'][0].include?('W-101') }, 'inspection result saved to Job Notes')
 # plan notes: the student's own entries, per opening
 pl = yd.last('load')['notes']['plans']

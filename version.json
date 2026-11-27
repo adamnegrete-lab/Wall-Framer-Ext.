@@ -1,5 +1,5 @@
 {
-  "version": "0.18.3",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.18.3.rbz",
-  "notes": "Continue framing also puts the top-down table view back."
+  "version": "0.19.0",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.19.0.rbz",
+  "notes": "Frame next wall finishes a floor before the next one (double plates first). Openings can be moved after framing - pieces follow. Faster cut list (one redraw per change). Inspection is per wall again in advanced mode."
 }

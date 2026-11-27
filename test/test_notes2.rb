@@ -34,7 +34,7 @@ UI.answers[:msg] = IDYES
 d.fire('submit', { 'question' => 'No header called out for W1 on A2 or the general notes. What size?' })
 o = Builder.params_of(s)['openings'].first
 chk(o['rfi'] == 1 && Project.data['rfis'].first['question'].include?('A2'), 'RFI submitted from the form')
-chk(Project.rfi_stuck_reason(Project.data['rfis'].first).to_s.include?('no header tables'), 'instructor sees why it is stuck')
+chk(Project.sfpa_tables, 'header tables ship with the extension (never stuck for lack of tables)')
 
 # import SFPA tables -> roof only (nothing above): 4' opening, 16' column -> (1) 2x6
 Project.import_sfpa(SFPA)

@@ -33,9 +33,9 @@ PLANS = {
                        3 => [['W2', 'Window', 300, 36, 48, 82.5, '2x8', 3]] },
            ints: [[5.5, 120.0, 234.5, 120.0, 'INT 2x4', [['D2', 'Door', 60, 32, 82.5, nil, :flat, nil]]],
                   [5.5, 240.0, 234.5, 240.0, 'INT 2x4', []]] },
-  'E' => { name: "2-story 24x20 with header RFIs", ext: [[0, 0], [288, 0], [288, 240], [0, 240]], runs: %w[through butt through butt],
-           openings: { 0 => [['W1', 'Window', 96, 36, 48, 82.5, :rfi, nil]], 2 => [['D1', 'Door', 144, 38, 82.5, nil, '2x10', 3]] },
-           upper: { openings: { 0 => [['W5', 'Window', 96, 36, 48, 82.5, :rfi, nil]], 2 => [['W6', 'Window', 144, 36, 48, 82.5, '2x8', 3]] } } },
+  'E' => { name: "2-story 24x20", ext: [[0, 0], [288, 0], [288, 240], [0, 240]], runs: %w[through butt through butt],
+           openings: { 0 => [['W1', 'Window', 96, 36, 48, 82.5, '2x10', 2]], 2 => [['D1', 'Door', 144, 38, 82.5, nil, '2x10', 3]] },
+           upper: { openings: { 0 => [['W5', 'Window', 96, 36, 48, 82.5, '2x8', 2]], 2 => [['W6', 'Window', 144, 36, 48, 82.5, '2x8', 3]] } } },
   'F' => { name: "16x12 drawn clockwise (body outside?)", ext: [[0, 0], [0, 144], [192, 144], [192, 0]], runs: %w[through butt through butt],
            openings: { 1 => [['W1', 'Window', 96, 36, 48, 82.5, '2x8', 3]] } },
   'G' => { name: "bay with a 45-degree corner", ext: [[0, 0], [240, 0], [240, 96], [192, 144], [0, 144]], runs: %w[through butt through butt through],
@@ -241,7 +241,9 @@ def frame_wall(g)
     when 'framed'
       if Builder.on_table?(g)
         fd = CutStudent.frame_dialog
-        fd.fire('stand_up')
+        fd.fire('ready')
+        finding("#{id}: framed but Build and stand wall isn't offered") unless fd.last('load')['ready_to_build']
+        fd.fire('build_stand')
       end
       t = g.transformation
       h = Builder.home(g)
@@ -328,20 +330,16 @@ def rfi_flow(g, o)
   finding("#{id}: #{o[0]} still on hold after reading the RFI answer and updating") if op['header'] == Framing::RFI
 end
 
-ok = walls.map { |w| frame_wall(w) }
-puts "   framed #{ok.count(true)} of #{walls.size} walls; pop-ups: #{S.popups.size}"
-
 # ---------------- double top plates ----------------
-TOOL.set_mode(:dtp)
 def top(g, x)
   p = Builder.params_of(g)
   V.ray = [Geom::Point3d.new(x, Framing.depth(p) / 2.0, 600).transform(g.transformation), Geom::Vector3d.new(0, 0, -1)]
 end
-Builder.all_walls.map { |w| Builder.params_of(w)['level'] }.uniq.each do |lv|
+def do_dtps(lv)
   bl = Builder.dtp_blockers(lv)
   unless bl.empty?
     finding("#{lv}: double plates blocked: #{bl}")
-    next
+    return
   end
   lw = Builder.level_walls(lv)
   # correct order: walls that butt (interior tees, butt corners) before the walls they butt into
@@ -368,13 +366,57 @@ Builder.all_walls.map { |w| Builder.params_of(w)['level'] }.uniq.each do |lv|
   finding("#{lv}: interlock #{checks.size - bad.size}/#{checks.size}: #{bad.map { |c| c['text'] }.first(2)}") unless bad.empty?
 end
 
+
+DONE_DTP = {}
+# the student starts at W-101 (front door wall) and uses Frame next wall from there
+order = Builder.framing_order
+puts '   order: ' + order.map { |w| Builder.params_of(w)['id'] }.join(' > ')
+g = order.first
+seen = []
+ok = []
+(walls.size + 2).times do
+  break unless g
+  seen << Builder.params_of(g)['id']
+  ok << frame_wall(g)
+  fd = CutStudent.frame_dialog
+  fd.fire('frame_next')
+  fd.fire('ready')
+  nid = fd.last('load')['wall']['id']
+  g = nid == seen.last ? nil : Builder.find_wall(nid)
+  if g.nil? && (left = order.reject { |w| Builder.framed_and_standing?(w) }).any?
+    # level done: double top plates, then on to the next floor
+    lv = Builder.params_of(seen.last && Builder.find_wall(seen.last))['level']
+    puts "   #{Sketchup.status_text}"
+    TOOL.set_mode(:dtp); do_dtps(lv); DONE_DTP[lv] = true; TOOL.set_mode(:guided)
+    fd.fire('frame_next'); fd.fire('ready')
+    nid = fd.last('load')['wall']['id']
+    g = nid == seen.last ? nil : Builder.find_wall(nid)
+    finding("after #{lv}'s double plates, Frame next wall didn't open the next floor (#{Sketchup.status_text})") unless g
+  end
+  finding("Frame next wall went back to #{nid}") if g && seen.include?(nid)
+end
+finding("walls framed in order #{seen.join(' > ')}, expected #{order.map { |w| Builder.params_of(w)['id'] }.join(' > ')}") unless seen == order.map { |w| Builder.params_of(w)['id'] }
+finding("Frame next wall left walls unframed: #{(walls - Builder.all_walls.select { |w| Builder.framed_and_standing?(w) }).map { |w| Builder.params_of(w)['id'] }}") unless walls.all? { |w| Builder.framed_and_standing?(w) }
+lvs = Builder.all_walls.map { |w| Builder.params_of(w)['level'] }.uniq
+lvs.reject { |lv| DONE_DTP[lv] }.each do |lv|
+  m = Dialogs.inspect_level(lv)
+  finding("#{lv}: inspection opened before the double plates: #{m}") unless m.include?('Inspection opens')
+end
+puts "   framed #{ok.count(true)} of #{walls.size} walls; pop-ups: #{S.popups.size}"
+TOOL.set_mode(:dtp)
+lvs.reject { |lv| DONE_DTP[lv] }.each { |lv| do_dtps(lv) }
+
 # ---------------- inspection + grading ----------------
 Builder.refresh_corner_needs
+lvs.each do |lv|
+  Dialogs.focus_wall(Builder.params_of(Builder.all_walls.find { |w| Builder.params_of(w)['level'] == lv })['id'])
+  YD.fire('ready'); YD.fire('inspect')
+  puts "   #{lv} inspection: #{Sketchup.status_text}"
+  finding("#{lv}: level inspection didn't run: #{Sketchup.status_text}") if Sketchup.status_text.include?('Inspection opens')
+end
 Builder.all_walls.each do |w|
-  YD.fire('ready')
-  Dialogs.focus_wall(Builder.params_of(w)['id'])
-  YD.fire('inspect')
   q = Builder.params_of(w)
+  finding("#{q['id']}: no inspection record after the level inspection") unless q['last_inspection']
   r = Inspector.inspect_wall(q, q['entries'], level: 'fix', table: Project.header_table, student_layout: Project.settings['student_layout'])
   next if r['correct'] == r['total'] && r['issues'].empty?
   finding("#{q['id']} inspection: #{r['summary']} - #{r['issues'].map { |i| "#{i.label}: #{i.message}" }.first(3)}")

@@ -67,7 +67,7 @@ module DMACC
           d.add_action_callback('ready') { |_c, _a| send_frame }
           d.add_action_callback('save_openings') { |_c, a| save_openings(JSON.parse(a)) }
           d.add_action_callback('save_entries') { |_c, a| save_entries(JSON.parse(a)['entries']) }
-          d.add_action_callback('inspect') { |_c, _a| inspect_focus_level }
+          d.add_action_callback('inspect') { |_c, _a| Project.settings['guided'] ? inspect_focus_level : request_inspection(nil) }
           d.add_action_callback('frame_next') { |_c, _a| frame_next }
           d.add_action_callback('continue') do |_c, _a|
             g = frame_group or next
@@ -261,6 +261,7 @@ module DMACC
           # an opening that's already framed can't move or disappear from here
           e = p['entries'] || {}
           framed = Builder.work_slots(p).select { |sl| sl.opening && Inspector.complete?(e[sl.id]) }.map(&:opening).uniq
+          framed = [] if Project.settings['guided'] # the cut list pulls and re-nails them where the opening moved
           framed.each do |mk|
             was = p['openings'].find { |o| o['mark'] == mk }
             now = ops.find { |o| o['mark'] == mk }
@@ -396,6 +397,12 @@ module DMACC
 
         def inspect_focus_level
           g = focus_group or return 'Place some walls first.'
+          unless Project.settings['guided'] # advanced mode: one wall at a time, as before
+            operation('Request Inspection') { inspect_group(g) }
+            refresh_yard
+            refresh_frame
+            return Builder.params_of(g)['last_inspection'] && Builder.params_of(g)['last_inspection']['summary']
+          end
           msg = inspect_level(Builder.params_of(g)['level'])
           Sketchup.status_text = msg
           js(@yard, 'setStatus', msg) if @yard&.visible?
@@ -415,7 +422,16 @@ module DMACC
           nxt = Builder.next_wall_after(g)
           unless nxt
             lv = Builder.params_of(g)['level']
-            js(@frame, 'setStatus', "Every wall is framed and standing. Next: double top plates, then request inspection for #{lv}.")
+            left = Builder.all_walls.reject { |w| Builder.framed_and_standing?(w) }
+            msg = if left.any? { |w| Builder.params_of(w)['level'] == lv }
+                    "#{Builder.params_of(left.first)['id']} still needs framing."
+                  elsif Builder.level_inspection_blockers(lv).any?
+                    "Every wall on #{lv} is framed and standing. Next: double top plates (Framing Panel), then request inspection. The next floor opens after that."
+                  else
+                    "Every wall is framed and standing. Request inspection for #{lv} if you haven't."
+                  end
+            Sketchup.status_text = msg
+            js(@frame, 'setStatus', msg)
             return
           end
           if @tool.respond_to?(:to_table) && @tool.to_table?(nxt)

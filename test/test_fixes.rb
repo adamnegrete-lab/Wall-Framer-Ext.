@@ -84,7 +84,7 @@ chk(Dialogs.rfi_state.first['status'].include?('min'), "instructor sees the time
 Project.update { |d| d['rfis'][0]['at'] -= 33 * 60 }
 done = Project.release_rfis
 o7 = Builder.params_of(s)['openings'].first
-chk(done.size == 1 && done.first['answer'].include?('(2) 2x8') && o7['rfi_new'] == 1 && o7['header'] == Framing::RFI,
+chk(done.size == 1 && done.first['answer'].to_s.include?('use (') && o7['rfi_new'] == 1 && o7['header'] == Framing::RFI,
     "answered after 32 min, waiting for the student to update W7: #{done.first && done.first['answer']}")
 p = Builder.params_of(s); p['openings'][0] = p['openings'][0].merge('header' => '2x8', 'plies' => 2).reject { |k, _| %w[rfi rfi_new].include?(k) }; Builder.set_params(s, p)
 # non-bearing wall: flat

@@ -224,6 +224,10 @@ module DMACC
 
       # Bring the wall in line with its cut list. Runs until nothing more can go in.
       def apply(group)
+        Builder.deferring_rebuilds { apply_now(group) }
+      end
+
+      def apply_now(group)
         @applying = true
         6.times do
           layout(group)

@@ -17,5 +17,5 @@ M.active_path = [a]
 DMACC::WallFramer.frame_tool; chk(M.active_path.nil? && Dialogs.tool.mode == :guided, 'back to framing in one click')
 # highlight boxes use the wall's real position now that edits are closed
 DMACC::WallFramer.inspect_tool
-chk(Builder.params_of(b)['last_inspection'], 'Inspect button inspects the working wall')
+chk(Sketchup.status_text.include?('Inspection opens when all framing on'), "Inspect waits for the whole level: #{Sketchup.status_text[0, 70]}")
 puts($f ? 'SOME FAILED' : 'ALL PASSED')
