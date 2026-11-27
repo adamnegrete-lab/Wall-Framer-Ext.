@@ -264,6 +264,7 @@ module DMACC
     end
 
     # ---------- menus ----------
+    @old_session = file_loaded?(__FILE__) if @old_session.nil? # SketchUp started on an older version (Reload After Update)
     unless file_loaded?(__FILE__)
       menu = UI.menu('Extensions').add_submenu('Wall Framer')
       menu.add_item('Project Setup...') { Dialogs.open_setup }
@@ -284,43 +285,7 @@ module DMACC
       menu.add_item('Set Update Address...') { Updater.set_url }
       UI.start_timer(8, false) { Updater.check(quiet: true) } # quiet check at startup
 
-      UI.add_context_menu_handler do |cm|
-        # If SketchUp shows its own menu while framing, the framing items go on top of it too.
-        t = Dialogs.tool
-        if t.respond_to?(:active?) && t.active?
-          before = cm.respond_to?(:add_separator)
-          begin
-            t.menu_items(cm)
-          rescue StandardError => e
-            puts "Wall Framer menu: #{e.message}"
-          end
-          cm.add_separator if before
-        end
-        next unless Builder.selected_walls.size >= 1
-        sub = cm.add_submenu('Wall Framer')
-        if Builder.selected_walls.size == 1
-          sub.add_item('Frame This Wall') { frame_tool }
-          sub.add_item('Openings + Member List...') { frame_wall }
-          sub.add_item('Redo Corners + Stud Layout') do
-            w = Builder.selected_walls.first
-            Dialogs.operation('Redo Stud Layout') { Builder.reset_commons(w) }
-            Dialogs.refresh_yard
-          end
-          sub.add_item('Shop Drawing...') { Dialogs.open_shop(Builder.selected_walls.first) }
-        end
-        sub.add_item('Change Wall Type...') { change_wall_type }
-        sub.add_item('Delete Selected Wall(s)...') do
-          ws = Builder.selected_walls
-          ids = ws.map { |w| Builder.params_of(w)['id'] }
-          if UI.messagebox("Delete #{ids.join(', ')}? Its framing goes with it.", MB_YESNO) == IDYES
-            Dialogs.operation('Delete Wall') do
-              ws.each { |w| w.locked = false; w.erase! }
-              Builder.forget_dtp(ids)
-              Builder.refresh_corner_needs
-            end
-          end
-        end
-      end
+      # (context menu handler is registered below, so a reload picks up new code)
       file_loaded(__FILE__)
     end
 
@@ -340,6 +305,53 @@ module DMACC
         end
       end
       file_loaded('dmacc_wf_rfi_timer')
+    end
+
+
+    # Right-click menu (SketchUp's own). Framing items first when the Frame/Demo tool is up.
+    def self.context_menu(cm, submenu: true)
+      # If SketchUp shows its own menu while framing, the framing items go on top of it too.
+      t = [Dialogs.tool, @demo].compact.find { |x| x.respond_to?(:active?) && x.active? }
+      if t
+        before = cm.respond_to?(:add_separator)
+        begin
+          t.menu_items(cm)
+        rescue StandardError => e
+          puts "Wall Framer menu: #{e.message}"
+        end
+        cm.add_separator if before
+      end
+      return unless submenu && Builder.selected_walls.size >= 1
+      sub = cm.add_submenu('Wall Framer')
+      if Builder.selected_walls.size == 1
+        sub.add_item('Frame This Wall') { frame_tool }
+        sub.add_item('Openings + Member List...') { frame_wall }
+        sub.add_item('Redo Corners + Stud Layout') do
+          w = Builder.selected_walls.first
+          Dialogs.operation('Redo Stud Layout') { Builder.reset_commons(w) }
+          Dialogs.refresh_yard
+        end
+        sub.add_item('Shop Drawing...') { Dialogs.open_shop(Builder.selected_walls.first) }
+      end
+      sub.add_item('Change Wall Type...') { change_wall_type }
+      sub.add_item('Delete Selected Wall(s)...') do
+        ws = Builder.selected_walls
+        ids = ws.map { |w| Builder.params_of(w)['id'] }
+        if UI.messagebox("Delete #{ids.join(', ')}? Its framing goes with it.", MB_YESNO) == IDYES
+          Dialogs.operation('Delete Wall') do
+            ws.each { |w| w.locked = false; w.erase! }
+            Builder.forget_dtp(ids)
+            Builder.refresh_corner_needs
+          end
+        end
+      end
+    end
+
+    unless file_loaded?('dmacc_wf_ctx_v2')
+      # An older handler from before a reload already adds the Wall Framer submenu - don't double it.
+      sub = !@old_session
+      UI.add_context_menu_handler { |cm| WallFramer.context_menu(cm, submenu: sub) }
+      file_loaded('dmacc_wf_ctx_v2')
     end
 
     DEMO_BUTTON = ['Demo - click a piece to pull it (Esc when done)', 'demo', proc { WallFramer.demo_tool }].freeze unless defined?(DEMO_BUTTON)

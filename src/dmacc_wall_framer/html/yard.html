@@ -157,6 +157,9 @@ function renderWall(w) {
   }
   if (w.stage === 'openings') box.appendChild(el('div', { 'class': 'btns' }, [
     el('button', { text: w.openings ? 'Done with openings' : 'No openings in this wall', onclick: function () { call('openings_done'); } })]));
+  if (w.removable && w.removable.length) box.appendChild(el('div', { 'class': 'btns' }, w.removable.map(function (m) {
+    return el('button', { text: 'Remove ' + m, title: 'Take ' + m + ' off this wall (before it is framed)', onclick: function () { call('remove_opening', { mark: m }); } });
+  })));
   if (!S.guided) box.appendChild(el('div', { 'class': 'btns modes' }, ['nail', 'layout', 'opening'].map(function (m) {
     var names = { nail: 'Nail', layout: 'Mark stud layout', opening: 'Mark opening CL' };
     return el('button', { 'class': S.mode === m ? 'primary' : '', text: names[m], onclick: function () { call('mode', { mode: m }); } });

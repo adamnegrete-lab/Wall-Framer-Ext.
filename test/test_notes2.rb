@@ -86,6 +86,20 @@ chk(rm, "remove an opening: #{menu.items.map(&:first)}")
 rm[1].call
 chk(Builder.params_of(w2)['openings'].empty?, 'opening removed')
 
+# SketchUp's own right-click menu gets the framing items on top
+p = Builder.params_of(w2); p['openings_done'] = false
+p['openings'] = [{ 'mark' => 'D4', 'type' => 'Door', 'x' => 30.0, 'width' => 32.0, 'height' => 82.5, 'sill' => 0.0, 'header' => '2x10', 'plies' => 3 }]
+Builder.set_params(w2, p)
+cm = Struct.new(:items) { def add_item(t, &b) = items << [t, b]; def add_separator = items << ['--']; def add_submenu(*) = self }.new([])
+DMACC::WallFramer.context_menu(cm)
+chk(cm.items.first(3).map(&:first).any? { |t2| t2.include?('Done with openings') }, "SketchUp's menu gets the framing items first: #{cm.items.first(3).map(&:first)}")
+# panel: Remove D4 button
+Dialogs.open_yard; yd = UI::HtmlDialog.all.last; Dialogs.focus_wall('W-102'); yd.fire('ready')
+chk(yd.last('load')['wall']['removable'] == ['D4'], 'This Wall tab lists D4 to remove')
+UI.answers[:msg] = IDYES
+yd.fire('remove_opening', { 'mark' => 'D4' })
+chk(Builder.params_of(w2)['openings'].empty?, 'Remove D4 from the panel')
+
 # pile tags are short
 tag = YardView.short_tag({ 'size' => '2x4', 'length' => 92.625, 'label' => '2x4 92-5/8" precut studs', 'qty' => nil }) rescue nil
 tag ||= Yard.short_tag({ 'size' => '2x4', 'length' => 92.625, 'label' => '2x4 92-5/8" precut studs', 'qty' => nil })

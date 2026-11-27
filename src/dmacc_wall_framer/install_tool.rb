@@ -405,6 +405,7 @@ module DMACC
       end
 
       def getMenu(menu, flags = nil, x = nil, y = nil, view = nil)
+        puts "Wall Framer: SketchUp asked for the right-click menu (#{self.class.name.split('::').last})"
         menu_items(menu, flags, x, y, view)
       rescue StandardError => e
         puts "Wall Framer right-click menu: #{e.class}: #{e.message}\n  #{e.backtrace.first(4).join("\n  ")}"

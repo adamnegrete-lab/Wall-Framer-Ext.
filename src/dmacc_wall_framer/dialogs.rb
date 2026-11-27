@@ -451,6 +451,12 @@ module DMACC
             notify_rfis(done)
             send_yard
           end
+          d.add_action_callback('remove_opening') do |_c, a|
+            g = focus_group or next
+            activate_tool
+            @tool.remove_opening(g, JSON.parse(a)['mark']) if @tool.respond_to?(:remove_opening)
+            send_yard
+          end
           d.add_action_callback('openings_done') do |_c, _a|
             g = focus_group or next
             activate_tool
@@ -560,6 +566,12 @@ module DMACC
           ]
           { 'id' => p['id'], 'type' => p['type'], 'level' => p['level'], 'framed' => framed, 'total' => slots.size,
             'stage' => Builder.stage(p), 'openings' => p['openings'].size,
+            'removable' => if %w[openings units].include?(Builder.stage(p))
+                             p['openings'].reject { |o| slots.any? { |sl| sl.opening == o['mark'] && Inspector.complete?((p['entries'] || {})[sl.id]) } }
+                                          .map { |o| o['mark'] }
+                           else
+                             []
+                           end,
             'steps' => steps.map { |n, t, ok| { 'name' => n, 'text' => t, 'done' => ok } },
             'inspection' => li && { 'summary' => li['summary'], 'passed' => li['correct'] == li['total'],
                                     'issues' => li['issues'] } }

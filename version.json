@@ -1,5 +1,5 @@
 {
-  "version": "0.13.2",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.2.rbz",
-  "notes": "Double top plate runs over 16': students pick the splice. A splice off a stud, or within 24 inches of the top plate splice, gets a pop-up hint."
+  "version": "0.13.3",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.3.rbz",
+  "notes": "Remove-opening buttons in the Framing panel. Right-click menu code now updates on reload. Right-clicks are logged to the Ruby Console to track down the menu problem."
 }
