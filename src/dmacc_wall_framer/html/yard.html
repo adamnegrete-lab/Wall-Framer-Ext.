@@ -75,8 +75,14 @@
 </div>
 
 <div class="pane" id="pane-notes">
-  <div class="what">Everything that came back on this job: RFI answers, inspection results, and notes from your instructor. Newest first.</div>
-  <section id="notes"></section>
+  <div class="what">Everything on this job: what you took off the plans, your own field notes, RFI answers, inspection results, and notes from your instructor.</div>
+  <section><h2>From the plans (what you entered)</h2><div id="plans"></div></section>
+  <section>
+    <h2>Add a field note</h2>
+    <textarea id="my-note" rows="2" style="width:100%;font:inherit" placeholder="e.g. Stud length 92-5/8 per wall section A5"></textarea>
+    <div class="btns"><button id="add-my-note">Save note</button></div>
+  </section>
+  <section><h2>Job log - newest first</h2><div id="notes"></div></section>
 </div>
 
 <div class="pane" id="pane-building">
@@ -245,12 +251,16 @@ function renderNotes(n) {
   var box = $('notes'); box.innerHTML = '';
   $('badge').innerHTML = '';
   if (n && n.unseen) $('badge').appendChild(el('span', { 'class': 'badge', text: n.unseen }));
-  if (!n || !n.items.length) { box.appendChild(el('div', { 'class': 'note', text: 'Nothing yet. RFI answers and inspection results show up here.' })); return; }
+  var pl = $('plans'); pl.innerHTML = '';
+  if (n && n.plans && n.plans.length) n.plans.forEach(function (p) { pl.appendChild(el('div', { 'class': 'row', text: p.text })); });
+  else pl.appendChild(el('div', { 'class': 'note', text: 'Openings you lay out show up here with the numbers you entered from the plans.' }));
+  if (!n || !n.items.length) { box.appendChild(el('div', { 'class': 'note', text: 'Nothing yet. Your notes, RFI answers and inspection results show up here.' })); return; }
   n.items.forEach(function (it) {
     var d = el('div', { 'class': 'item' + (it.unseen ? ' new' : '') }, [
       el('div', { 'class': 'k', text: it.kind + (it.when ? ' - ' + it.when : '') }),
       el('div', { 'class': 't', text: it.title })]);
     it.lines.forEach(function (l) { d.appendChild(el('div', { text: l })); });
+    if (it.kind === 'My note') d.appendChild(el('div', { 'class': 'btns' }, [el('button', { text: 'Delete', onclick: function () { call('delete_my_note', { i: it.mine }); } })]));
     if (it.kind === 'Note' && S.instructor) d.appendChild(el('div', { 'class': 'btns' }, [el('button', { text: 'Delete', onclick: function () { call('delete_note', { i: it.i }); } })]));
     box.appendChild(d);
   });
@@ -322,6 +332,7 @@ $('cut').addEventListener('keydown', function (e) { if (e.key === 'Enter') { cal
 $('clearcut').onclick = function () { $('cut').value = ''; call('set_cut', { text: '' }); };
 $('offcuts').onchange = function () { call('toggle_offcuts', { on: $('offcuts').checked }); };
 $('restock').onclick = function () { call('restock'); };
+$('add-my-note').onclick = function () { var t = $('my-note').value.trim(); if (t) { call('add_my_note', { text: t }); $('my-note').value = ''; } };
 $('post-note').onclick = function () { var t = $('note-text').value.trim(); if (t) { call('post_note', { text: t }); $('note-text').value = ''; } };
 window.onload = function () { sketchup.ready(''); };
 </script>

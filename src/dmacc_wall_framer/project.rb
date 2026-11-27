@@ -47,6 +47,7 @@ module DMACC
         'dtp_seq' => nil,     # double plate pieces in the order they went on
         'rfis' => [],
         'notes' => [],        # job notes the instructor posts
+        'student_notes' => [], # field notes the student saves (numbers off the plans, etc.)
         'notes_seen_at' => 0, # Job Notes tab last opened
         'sfpa' => nil,        # header tables imported by the instructor (kept in the model, not the extension)         # requests for information (header sizes not on the plans)
         # Header span table for this assignment, entered by the instructor from the

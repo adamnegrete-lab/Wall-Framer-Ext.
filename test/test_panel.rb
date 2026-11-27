@@ -61,4 +61,14 @@ chk(it['kind'] == 'Note' && it['unseen'], 'instructor job note posted and shows 
 # inspection shows up in Job Notes
 yd.fire('inspect')
 chk(yd.last('load')['notes']['items'].any? { |i| i['kind'] == 'Inspection' && i['lines'][0].include?('W-101') }, 'inspection result saved to Job Notes')
+# plan notes: the student's own entries, per opening
+pl = yd.last('load')['notes']['plans']
+chk(pl.size == 1 && pl[0]['text'].include?("W1 window (W-101) - RO 3' 0\" x 4' 0\", head height 6' 10-1/2\""), "plan notes: #{pl[0] && pl[0]['text']}")
+# field notes: save, show, delete; in the grade report
+yd.fire('add_my_note', { 'text' => 'Stud length 92-5/8 per wall section A5' })
+mine = yd.last('load')['notes']['items'].find { |i| i['kind'] == 'My note' }
+chk(mine && mine['lines'][0].include?('92-5/8') && !mine['unseen'], 'field note saved in Job Notes')
+chk(DMACC::WallFramer.field_notes_html.include?('92-5/8'), 'field notes show up in the grade report')
+yd.fire('delete_my_note', { 'i' => mine['mine'] })
+chk(yd.last('load')['notes']['items'].none? { |i| i['kind'] == 'My note' }, 'field note deleted')
 puts($f ? 'SOME FAILED' : 'ALL PASSED')

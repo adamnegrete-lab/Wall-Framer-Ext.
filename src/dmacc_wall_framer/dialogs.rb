@@ -322,9 +322,26 @@ module DMACC
             items << { 'kind' => 'Note', 'at' => n['at'].to_f, 'unseen' => n['at'].to_f > seen, 'i' => i,
                        'title' => 'Job note', 'lines' => [n['text']] }
           end
+          (d['student_notes'] || []).each_with_index do |n, i|
+            items << { 'kind' => 'My note', 'at' => n['at'].to_f, 'unseen' => false, 'mine' => i,
+                       'title' => 'Field note', 'lines' => [n['text']] }
+          end
           items.sort_by! { |x| -x['at'] }
           items.each { |x| x['when'] = x['at'].positive? ? Time.at(x['at']).strftime('%m/%d %I:%M %p') : ''; x['at'] = x['at'].to_i }
-          { 'items' => items, 'unseen' => items.count { |x| x['unseen'] } }
+          { 'items' => items, 'unseen' => items.count { |x| x['unseen'] }, 'plans' => plan_notes }
+        end
+
+        # What the student took off the plans for each opening (their entries, typos and all).
+        def plan_notes
+          Builder.all_walls.flat_map do |w|
+            p = Builder.params_of(w)
+            p['openings'].map do |o|
+              head = o['type'] == 'Window' ? ", head height #{len_text(o['height'])}" : ''
+              hdr = o['header'] == Framing::RFI ? 'header: RFI out' : "header #{Framing.header_label(o)}"
+              { 'mark' => o['mark'], 'wall' => p['id'],
+                'text' => "#{o['mark']} #{o['type'].downcase} (#{p['id']}) - RO #{len_text(o['width'])} x #{len_text(Framing.ro_height(o))}#{head}, #{hdr}" }
+            end
+          end.sort_by { |x| x['mark'] }
         end
 
         def walls_list
@@ -414,6 +431,17 @@ module DMACC
           end
           d.add_action_callback('notes_seen') do |_c, _a|
             Project.update { |dd| dd['notes_seen_at'] = Time.now.to_f }
+            send_yard
+          end
+          d.add_action_callback('add_my_note') do |_c, a|
+            txt = JSON.parse(a)['text'].to_s.strip
+            next if txt.empty?
+            operation('Field Note') { Project.update { |dd| (dd['student_notes'] ||= []) << { 'text' => txt, 'at' => Time.now.to_f } } }
+            send_yard
+          end
+          d.add_action_callback('delete_my_note') do |_c, a|
+            i = JSON.parse(a)['i'].to_i
+            operation('Delete Field Note') { Project.update { |dd| (dd['student_notes'] ||= []).delete_at(i) } }
             send_yard
           end
           d.add_action_callback('post_note') do |_c, a|

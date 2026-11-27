@@ -156,6 +156,7 @@ module DMACC
           <h2>Differences from the key</h2>#{notes}
           <h2>Double top plate interlock</h2>#{interlock_html}
           <h2>RFIs</h2>#{rfi_html}
+          <h2>Student field notes</h2>#{field_notes_html}
           <h2>Material use</h2>#{yard_html}
           <h2>Inspection history (last 40)</h2><ul>#{log.empty? ? '<li>None</li>' : log}</ul>
           <h2>Takeoff history</h2><ul>#{tk.empty? ? '<li>None</li>' : tk}</ul>
@@ -170,6 +171,12 @@ module DMACC
         return '<p>No joints between walls.</p>' if rows.empty?
         ok = rows.count { |r| r['ok'] }
         "<p>#{ok} of #{rows.size} joints interlocked.</p><ul>" + rows.reject { |r| r['ok'] }.map { |r| "<li>#{h(r['text'])}</li>" }.join + '</ul>'
+      end
+
+      def field_notes_html
+        ns = Project.data['student_notes'] || []
+        return '<p>None.</p>' if ns.empty?
+        '<ul>' + ns.map { |n| "<li>#{h(n['text'])}</li>" }.join + '</ul>'
       end
 
       def rfi_html
