@@ -1,5 +1,5 @@
 {
-  "version": "0.18.2",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.18.2.rbz",
-  "notes": "Fixes 0.18.1 failing to load."
+  "version": "0.18.3",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.18.3.rbz",
+  "notes": "Continue framing also puts the top-down table view back."
 }

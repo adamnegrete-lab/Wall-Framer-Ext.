@@ -73,6 +73,7 @@ module DMACC
             g = frame_group or next
             focus_wall(Builder.params_of(g)['id'])
             activate_tool
+            Views.table(g) if Builder.on_table?(g) # back to looking straight down on the table
             Sketchup.status_text = "Back to framing #{Builder.params_of(g)['id']} - click a piece or type in the cut list."
           end
           d.add_action_callback('go_frame') { |_c, _a| open_yard; Sketchup.active_model.select_tool(InstallTool.new) }
