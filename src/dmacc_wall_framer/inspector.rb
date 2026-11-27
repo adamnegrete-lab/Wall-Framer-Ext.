@@ -165,6 +165,17 @@ module DMACC
                               'Check the wall legend on the plans for the stud spacing, then redo the stud layout (right-click the wall).', nil)
         end
 
+        # Header height marks on the kings vs the head height on the plans
+        (wall['hdr_marks'] || {}).each do |mk, z|
+          o = (wall['openings'] || []).find { |x| x['mark'] == mk } or next
+          next if (z.to_f - o['height'].to_f).abs <= 1.0 / 16
+          issues << Issue.new("HDRMARK:#{mk}", "#{mk} header mark", ['mark'],
+                              "The header mark on the #{mk} kings is at #{Framing.fmt_len(z.to_f)} - it doesn't match the head height on the plans.",
+                              'Check the head height on the plans (window schedule or elevations), then click a king to move the mark. Jacks are cut to the mark.',
+                              { 'role' => 'Header mark', 'size' => '', 'length' => o['height'].to_f,
+                                'length_text' => "mark at #{Framing.fmt_len(o['height'].to_f)}" })
+        end
+
         id = wall['id'] || 'Wall'
         total = slots.size + extra
         wrong = issues.size - blank

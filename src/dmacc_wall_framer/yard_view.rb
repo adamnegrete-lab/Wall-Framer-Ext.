@@ -134,8 +134,8 @@ module DMACC
           ents = g.entities
           layout(y).each do |id, a, _b, label, p|
             case id
-            when 'OFFCUTS' then loose(model, ents, y['offcuts'], a, label)
-            when 'CART' then loose(model, ents, y['cart'], a, label)
+            when 'OFFCUTS' then loose(model, ents, y['offcuts'], a, 'Offcuts')
+            when 'CART' then loose(model, ents, y['cart'], a, 'Cart')
             else stack(model, ents, p, a, label)
             end
           end
@@ -166,8 +166,18 @@ module DMACC
             inst.set_attribute(DICT, 'pile', p['id'])
           end
           add_stickers(model, ents, a, p['length'].to_f, 4 * (w + 0.5) + 1)
-          qty = p['qty'].nil? ? 'unlimited' : "#{p['qty']} left"
-          ents.add_text("#{label} (#{qty})", Geom::Point3d.new(a[0] + 6, a[1] + 2, a[2] + 3.5 + layers(n) * Framing::T + 2))
+          ents.add_text(short_tag(p), Geom::Point3d.new(a[0] + 2, a[1], a[2] + 3.5 + layers(n) * Framing::T))
+        end
+
+        # "2x4 92-5/8 PC", "2x6 12'", "2x10 16' HDR" (+ count if the pile can run out)
+        def short_tag(p)
+          len = p['length'].to_f
+          l = (len % 12).abs < 1e-6 ? "#{(len / 12).round}'" : Framing.fmt_in(len).delete('"')
+          kind = if p['label'].include?('precut') then ' PC'
+                 elsif p['label'].include?('header') then ' HDR'
+                 else ''
+                 end
+          "#{p['size']} #{l}#{kind}#{p['qty'] ? " (#{p['qty']})" : ''}"
         end
 
         # 4x4 dunnage the bunks sit on
@@ -185,7 +195,8 @@ module DMACC
             inst = ents.add_instance(board_def(model, p['size'], p['length'].to_f), t)
             inst.material = wood(model)
           end
-          ents.add_text("#{label} (#{pieces.size})", Geom::Point3d.new(a[0], a[1] + 2, a[2] + 14))
+          return if pieces.empty?
+          ents.add_text("#{label} (#{pieces.size})", Geom::Point3d.new(a[0], a[1], a[2] + 4))
         end
 
         # ---------- hit testing ----------

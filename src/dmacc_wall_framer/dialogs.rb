@@ -166,11 +166,6 @@ module DMACC
             return
           end
           operation('Edit Openings') do
-            ops.each do |op|
-              next unless op['header'] == Framing::RFI && !op['rfi']
-              op['rfi'] = Project.submit_rfi(p['id'], op['mark'],
-                                             "The header size for #{op['mark']} (#{len_text(op['width'])} RO) isn't on the plans or in the general notes. What header should be used?")
-            end
             p['openings'] = ops
             p['last_inspection'] = nil
             p['flags'] = []
@@ -180,6 +175,8 @@ module DMACC
           send_frame
           js(@frame, 'openingErrors', [])
           js(@frame, 'afterOps', nil)
+          unsent = ops.find { |op| op['header'] == Framing::RFI && !op['rfi'] }
+          open_rfi(p['id'], unsent['mark']) if unsent
         end
 
         # Parses and stores entries. Returns parse errors {slot_id => msg}.
@@ -253,6 +250,45 @@ module DMACC
           send_frame if @frame&.visible?
         end
 
+        # ---------------- RFI form ----------------
+
+        def open_rfi(wall_id, mark)
+          g = Builder.find_wall(wall_id) or return
+          p = Builder.params_of(g)
+          o = p['openings'].find { |x| x['mark'] == mark } or return
+          @rfi.close if @rfi&.visible?
+          d = make('Request for Information', 'rfi.html', 760, 560, 'rfi')
+          @rfi = d
+          title = Sketchup.active_model.title.to_s
+          d.add_action_callback('ready') do |_c, _a|
+            js(d, 'load', { 'n' => Project.data['rfis'].size + 1, 'project' => title.empty? ? '(unsaved model)' : title,
+                            'date' => Time.now.strftime('%m/%d/%Y'), 'wall' => "#{wall_id} (#{p['type']})", 'mark' => mark,
+                            'type' => o['type'],
+                            'ro' => "#{len_text(o['width'])} wide x #{len_text(Framing.ro_height(o))} high",
+                            'question' => "Checked the plans, schedules and general notes - no header size is called out for #{mark}. " \
+                                          'What header (size and plies) should be used?' })
+          end
+          d.add_action_callback('submit') do |_c, a|
+            q = JSON.parse(a)['question'].to_s.strip
+            n = nil
+            operation('Submit RFI') do
+              n = Project.submit_rfi(wall_id, mark, q)
+              gg = Builder.find_wall(wall_id)
+              pp = Builder.params_of(gg)
+              pp['openings'] = pp['openings'].map { |x| x['mark'] == mark ? x.merge('rfi' => n) : x }
+              Builder.set_params(gg, pp)
+            end
+            d.close
+            UI.messagebox("RFI ##{n} submitted. #{mark} is on hold until the answer comes back - " \
+                          'keep working on other openings and walls in the meantime.')
+            refresh_frame
+            refresh_yard
+          end
+          d.add_action_callback('cancel') { |_c, _a| d.close }
+          d.show
+          d
+        end
+
         # RFIs that just got their answers: tell the student, and the opening is off hold.
         def notify_rfis(done)
           return if done.nil? || done.empty?
@@ -274,7 +310,7 @@ module DMACC
             { 'n' => r['n'], 'wall' => r['wall'], 'mark' => r['mark'], 'question' => r['question'],
               'answer' => r['answer'],
               'status' => if r['answer'] then 'answered'
-                          elsif inst then (Project.rfi_answer(r) ? "answers itself in #{left} min" : 'no span table row covers it - answer it yourself')
+                          elsif inst then ((why = Project.rfi_stuck_reason(r)) ? "stuck: #{why}" : "answers itself in #{left} min")
                           else 'submitted - awaiting response'
                           end,
               'can_answer' => inst && !r['answer'] }
@@ -356,6 +392,16 @@ module DMACC
             end
             js(d, 'setStatus', "No span table row covers RFI ##{n} - type an answer with a header size.") if done.empty?
             notify_rfis(done)
+            send_yard
+          end
+          d.add_action_callback('openings_done') do |_c, _a|
+            g = focus_group or next
+            activate_tool
+            if @tool.respond_to?(:finish_openings)
+              @tool.finish_openings(g)
+            else
+              operation('Done With Openings') { Builder.set_flag(g, 'openings_done', true) }
+            end
             send_yard
           end
           d.add_action_callback('check_interlock') do |_c, _a|
@@ -456,6 +502,7 @@ module DMACC
             [STEP_NAMES[4], dtp.empty? ? 'single top plate' : (done.call(dtp) == dtp.size ? 'on' : 'after every wall stands (building step below)'), dtp.all? { |sl| Inspector.slot_done?(sl, e[sl.id]) }]
           ]
           { 'id' => p['id'], 'type' => p['type'], 'level' => p['level'], 'framed' => framed, 'total' => slots.size,
+            'stage' => Builder.stage(p), 'openings' => p['openings'].size,
             'steps' => steps.map { |n, t, ok| { 'name' => n, 'text' => t, 'done' => ok } },
             'inspection' => li && { 'summary' => li['summary'], 'passed' => li['correct'] == li['total'],
                                     'issues' => li['issues'] } }
@@ -496,6 +543,18 @@ module DMACC
           d.add_action_callback('ready') { |_c, _a| send_setup }
           d.add_action_callback('close') { |_c, _a| d.close }
           d.add_action_callback('save_setup') { |_c, a| save_setup(JSON.parse(a)) }
+          d.add_action_callback('import_sfpa') do |_c, _a|
+            next js(d, 'showErrors', ['Only the instructor can import header tables.']) unless Project.instructor?
+            path = UI.openpanel('Header tables (WallFramer_SFPA_headers.json)', '', 'Header tables|*.json||')
+            next unless path
+            begin
+              operation('Import Header Tables') { Project.import_sfpa(path) }
+              send_setup
+              js(d, 'setStatus', 'Header tables imported. RFIs on bearing walls answer from them now.')
+            rescue StandardError => e
+              js(d, 'showErrors', ["Couldn't import that file: #{e.message}"])
+            end
+          end
           d.add_action_callback('unlock') do |_c, a|
             ok = Project.unlock(JSON.parse(a)['pw'])
             send_setup
@@ -521,6 +580,7 @@ module DMACC
                'header_table' => dat['header_table'].map { |w, s| { 'width_text' => w.to_f >= 9999 ? 'any' : len_text(w), 'size' => s } },
                'span_table' => (dat['span_table'] || []).map { |r| r.merge('span_text' => len_text(r['span'])) },
                'span_conditions' => dat['span_conditions'].to_s,
+               'sfpa' => dat['sfpa'] && dat['sfpa']['source'],
                'settings' => dat['settings'],
                'kerf_text' => Framing.fmt_in(dat['settings']['kerf'] || YardLogic::KERF),
                'feedback_levels' => Inspector::LEVELS.to_a,

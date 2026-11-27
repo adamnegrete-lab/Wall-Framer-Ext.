@@ -51,15 +51,18 @@
   </div>
 
   <div id="instructor">
-    <h2>RFI answers - header span table</h2>
+    <h2>RFI answers - header tables</h2>
     <p class="note">Header sizes come from the plans or general notes. When a student can't find one, they submit an RFI.
       The answer comes back on its own after the delay below (students never see a timer), or answer it early from the Framing panel.
-      Enter the rows from the current IRC header span table, Table R602.7(1), for this assignment's conditions (the table is ICC's,
-      so it isn't built in). The answer is the smallest header whose max span covers the RO width. Non-bearing walls always
-      answer (2) 2x4 flat (R602.7.4). If no row covers an opening, the RFI waits for you to answer it.</p>
+      Non-bearing walls always answer (2) 2x4 flat. Jack studs follow the 1-jack / 2-jacks-over-6' rule.</p>
+    <div id="sfpa-status" class="note"></div>
+    <p><button class="btn" id="import-sfpa">Import header tables...</button></p>
+    <details><summary>Or enter your own span table</summary>
+    <p class="note">Used only if no header tables are imported. The answer is the smallest header whose max span covers the RO width.</p>
     <div class="row span head"><div>Header</div><div>Plies</div><div>Max span</div><div>Jacks each side</div><div></div></div>
     <div id="spans"></div>
     <button class="btn" id="add-span">+ Add row</button>
+    </details>
     <div class="box set" style="margin-top:8px">
       <label for="span_conditions">Conditions the table is for (shown in the answer)</label><input id="span_conditions" placeholder="e.g. 30 psf ground snow, 28' building width, roof + ceiling">
       <label for="rfi_delay_min">Minutes until an RFI answers itself</label><input id="rfi_delay_min" style="width:80px">
@@ -180,6 +183,7 @@ function read(sel) {
 }
 $('add-level').onclick = function () { $('levels').appendChild(levelRow({})); };
 $('add-type').onclick = function () { $('types').appendChild(typeRow({})); };
+$('import-sfpa').onclick = function () { call('import_sfpa'); };
 $('add-span').onclick = function () { $('spans').appendChild(spanRow({})); };
 $('add-hdr').onclick = function () { $('hdrs').appendChild(hdrRow({})); };
 $('close').onclick = function () { sketchup.close(''); };
@@ -218,6 +222,10 @@ function load(state) {
   $('kerf').value = state.kerf_text;
   $('spans').innerHTML = ''; (state.span_table || []).forEach(function (h) { $('spans').appendChild(spanRow(h)); });
   $('span_conditions').value = state.span_conditions || '';
+  $('sfpa-status').textContent = state.sfpa
+    ? 'Using: ' + state.sfpa + '. First-floor walls under another level use the roof + floor table; top-level walls use the roof-only table. Span is read from the house width.'
+    : ((state.span_table || []).length ? 'Using your span table below.'
+       : 'WARNING: no header tables yet - RFIs on bearing walls will not answer themselves until you import them (or answer each RFI from the Framing panel).');
   $('rfi_delay_min').value = state.settings.rfi_delay_min || 32;
   $('ladder_oc').value = state.settings.ladder_oc || 24;
   $('instructor').style.display = state.instructor ? '' : 'none';

@@ -9,6 +9,7 @@ module DMACC
       DICT = 'dmacc_wall_framer'.freeze
       TAG_FRAMING = 'Framing'.freeze
       TAG_MARKS = 'Framing - Layout Marks'.freeze
+      TAG_LABELS = 'Framing - Wall Labels'.freeze
 
       ROLE_COLORS = {
         'Common Stud' => [235, 215, 175], 'King Stud' => [150, 190, 110],
@@ -133,6 +134,9 @@ module DMACC
       # nil = can be framed now; otherwise the job-site reason it can't.
       def gate_reason(params, slot, slots = nil)
         # An opening waiting on an RFI is on hold - nothing in it gets framed yet
+        if slot.opening && (op = params['openings'].find { |o| o['mark'] == slot.opening }) && op['header'] == Framing::RFI && !op['rfi']
+          return "#{slot.opening} is on hold - your RFI isn't submitted yet. Click any #{slot.opening} spot to write it."
+        end
         if slot.opening && (op = params['openings'].find { |o| o['mark'] == slot.opening }) && op['header'] == Framing::RFI
           return "#{slot.opening} is on hold - waiting on the answer to RFI ##{op['rfi']} (header size). Frame another opening or wall in the meantime."
         end
@@ -837,6 +841,7 @@ module DMACC
         add_chalk_lines(model, group.entities, params)
         add_plate_marks(model, group.entities, params) if Inspector.complete?(entries['BP'])
         add_start_arrow(model, group.entities, params)
+        add_wall_label(model, group.entities, params)
         lock(group) # can't be opened or nudged by accident; Tape Measure still snaps to it
         group
       end
@@ -985,6 +990,14 @@ module DMACC
         inst
       end
 
+      # The wall's ID floating above the middle of the wall (its own tag, so it can be hidden).
+      def add_wall_label(model, ents, params)
+        t = ents.add_text(params['id'].to_s, Geom::Point3d.new(params['length'].to_f / 2.0, Framing.depth(params) / 2.0, params['height'].to_f + 12))
+        return unless t
+        t.layer = tag(model, TAG_LABELS) if t.respond_to?(:layer=)
+        t.set_attribute(DICT, 'wall_label', true) if t.respond_to?(:set_attribute)
+      end
+
       # Small arrow on top of the wall at the layout end (where the tape hooks), pointing down the wall.
       def add_start_arrow(model, ents, params)
         z = params['height'].to_f + 0.25
@@ -1021,6 +1034,36 @@ module DMACC
         a = t.origin
         b = a.offset(t.xaxis, p['length'].to_f)
         [a, b]
+      end
+
+      # Another level framed on top of this wall's level? (header carries a floor + wall)
+      def floor_above?(group)
+        p = params_of(group)
+        lv = Project.level(p['level'])
+        elev = lv ? lv['elev'].to_f : group.transformation.origin.z.to_f
+        all_walls.any? do |w|
+          q = params_of(w)
+          next false if q['level'] == p['level']
+          ql = Project.level(q['level'])
+          (ql ? ql['elev'].to_f : w.transformation.origin.z.to_f) > elev + 12
+        end
+      end
+
+      # Span of the roof/floor framing this wall carries: the house's width
+      # across the wall (outside of the walls on this level, perpendicular to it).
+      def building_span(group)
+        p = params_of(group)
+        t = group.transformation
+        ax = t.xaxis
+        n = [-ax.y.to_f, ax.x.to_f] # across the wall, in plan
+        vals = all_walls.select { |w| params_of(w)['level'] == p['level'] }.flat_map do |w|
+          a, b = endpoints(w)
+          d = Framing.depth(params_of(w))
+          wt = w.transformation
+          off = [-wt.xaxis.y.to_f * d, wt.xaxis.x.to_f * d]
+          [a, b].flat_map { |pt| [[pt.x.to_f, pt.y.to_f], [pt.x.to_f + off[0], pt.y.to_f + off[1]]] }
+        end.map { |x, y| x * n[0] + y * n[1] }
+        vals.empty? ? 0.0 : vals.max - vals.min
       end
 
       def snapshot_wall(group)

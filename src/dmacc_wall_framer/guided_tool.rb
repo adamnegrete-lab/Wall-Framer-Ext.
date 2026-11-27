@@ -9,12 +9,12 @@ module DMACC
         'Bottom Plate' => 'measure the chalk line on the deck',
         'Top Plate' => 'same as the bottom plate',
         'King Stud' => 'kings run plate to plate',
-        'Jack Stud' => 'head height minus the bottom plate',
+        'Jack Stud' => 'plate to header mark',
         'Header' => 'measure between the kings',
         'Rough Sill' => 'fits between the jacks',
         'Common Stud' => 'same as your kings',
-        'Cripple under' => 'pull the RO down from the top of the jack to find the sill, then measure plate to sill',
-        'Header block' => 'measure from the top of the header to the top plate'
+        'Cripple under' => 'plate to bottom of sill',
+        'Header block' => 'header to top plate'
       }.freeze
 
       def activate
@@ -149,7 +149,10 @@ module DMACC
         elsif @target
           g, slot, p = @target
           before = Builder.stage(p)
-          if slot.kind == :backing
+          op = slot.opening && p['openings'].find { |o| o['mark'] == slot.opening }
+          if op && op['header'] == Framing::RFI && !op['rfi']
+            Dialogs.open_rfi(p['id'], op['mark'])
+          elsif slot.kind == :backing
             tee_popup(g, slot, p)
           elsif king_needs_mark?(p, slot)
             header_mark_popup(g, slot, p)
@@ -288,9 +291,9 @@ module DMACC
         if header
           # The size was set from the plans when the opening was laid out - only the cut is asked here.
           op = p['openings'].find { |o| o['mark'] == slot.opening }
-          prompts << "Cut length#{tip}" << "Plies (pieces nailed together) - header per plans: #{Framing.header_label(op)}"
-          lists << '' << '1|2|3'
-          vals << defaults[1] << (op && op['header'] == Framing::FLAT ? '2' : defaults[2])
+          prompts << "Cut length - #{Framing.header_label(op)}#{tip}"
+          lists << ''
+          vals << defaults[1]
         else
           sizes = '2x4|2x6'
           size = sizes.split('|').include?(defaults[0]) ? defaults[0] : p['stud']
@@ -309,7 +312,7 @@ module DMACC
             vals = res
             next
           end
-          plies = header ? res[1].to_i : 1
+          plies = header ? slot.plies.to_i : 1
           model = Sketchup.active_model
           model.start_operation("Nail #{role}", true)
           err = Builder.nail_supplied(g, slot, size, len, plies)
@@ -318,7 +321,7 @@ module DMACC
             UI.messagebox(err)
             return
           end
-          @last[role] = header ? [size, res[0], res[1]] : [res[0], res[1], '2']
+          @last[role] = header ? [size, res[0]] : [res[0], res[1]]
           Sketchup.status_text = "Nailed #{plies > 1 ? "#{plies} x " : ''}#{size} x #{Framing.fmt_len(len)} - #{slot.label}."
           break
         end
@@ -328,8 +331,7 @@ module DMACC
 
       def tip_for(slot, p)
         if slot.expected['role'] == 'Jack Stud' && (z = (p['hdr_marks'] || {})[slot.opening])
-          return " (your header mark on the kings is at #{Framing.fmt_len(z.to_f)} from the subfloor - " \
-                 'measure from the top of the bottom plate up to the mark)'
+          return " (header mark: #{Framing.fmt_len(z.to_f)})"
         end
         return '' unless Project.settings['popup_tips'] && TIPS[tip_key(slot)]
         " (#{TIPS[tip_key(slot)]})"
@@ -337,16 +339,15 @@ module DMACC
 
       # A nailed king on an opening with no header mark yet: mark the header height on it.
       def king_needs_mark?(p, slot)
-        return false unless slot.expected['role'] == 'King Stud' && slot.opening
-        return false if (p['hdr_marks'] || {})[slot.opening]
-        occupied?(p, slot)
+        slot.expected['role'] == 'King Stud' && slot.opening && occupied?(p, slot)
       end
 
       def header_mark_popup(g, slot, p)
         op = p['openings'].find { |o| o['mark'] == slot.opening }
         prompt = "Header height for #{slot.opening} - bottom of the header, measured from the subfloor"
+        cur = (p['hdr_marks'] || {})[slot.opening]
         loop do
-          res = UI.inputbox([prompt], [@last['hdr_mark'] || ''], [''], "Mark the kings - #{slot.opening}")
+          res = UI.inputbox([prompt], [cur ? Framing.fmt_len(cur.to_f) : (@last['hdr_mark'] || '')], [''], "Mark the kings - #{slot.opening}")
           return unless res
           z = Framing.parse_len(res[0])
           unless z && z > Framing::T && z < p['height'].to_f
@@ -354,9 +355,17 @@ module DMACC
             next
           end
           @last['hdr_mark'] = res[0]
+          return if cur && (cur.to_f - z).abs < 1e-6
           model = Sketchup.active_model
           model.start_operation('Mark Header Height', true)
           p = Builder.params_of(g)
+          jacks = Builder.work_slots(p).select { |s| s.opening == slot.opening && s.expected['role'] == 'Jack Stud' && occupied?(p, s) }
+          if cur && jacks.any? &&
+             UI.messagebox("#{slot.opening}'s jacks were cut to the old mark. Pull them and re-cut?", MB_YESNO) == IDYES
+            pulled = jacks.map { |s| Builder.remove_piece(g, s.id) }.compact
+            Yard.change { |y| pulled.each { |pc| y['offcuts'] << { 'id' => YardLogic.new_id(y, 'O'), 'size' => pc['size'], 'length' => pc['length'].to_f } } }
+            p = Builder.params_of(g)
+          end
           p['hdr_marks'] = (p['hdr_marks'] || {}).merge(slot.opening => z)
           Builder.set_params(g, p)
           Builder.rebuild(g)
@@ -409,6 +418,7 @@ module DMACC
         slot.expected['role']
       end
 
+      PLY_PICK = '--'
       HDR_PICK = Framing::HDR_PICK
       HDR_FLAT = Framing::HDR_FLAT
       HDR_RFI = Framing::HDR_RFI
@@ -465,24 +475,29 @@ module DMACC
           vals << (@last['head'] || '82 1/2')
           lists << ''
         end
-        prompts << 'Header (from the plans / general notes)'
-        vals << dflt_hdr
-        lists << header_choices.join('|')
+        prompts << 'Header (from the plans / general notes)' << 'Header plies (from the plans)'
+        vals << dflt_hdr << PLY_PICK
+        lists << header_choices.join('|') << ([PLY_PICK] + %w[1 2 3]).join('|')
         loop do
           res = UI.inputbox(prompts, vals, lists, "#{mark} (#{type}) - #{title}")
           return :back unless res
           w = Framing.parse_len(res[0])
           h = Framing.parse_len(res[1])
           head = win ? Framing.parse_len(res[2]) : h
-          hdr = header_value(res.last)
+          hdr = header_value(res[-2])
+          plies = res[-1].to_i
           errs = []
           errs << "Couldn't read the RO width." unless w && w > 0
           errs << "Couldn't read the RO height." unless h && h > 0
           errs << "Couldn't read the head height." if win && head.nil?
           errs << "Pick the header size from the plans or general notes. If it isn't called out, don't assume - pick \"#{HDR_RFI}\"." unless hdr
+          if Framing::SIZES.include?(hdr) && plies.zero?
+            errs << 'Pick the number of header plies from the plans (the (2) in "(2) 2x10").'
+          end
           if errs.empty?
             op = { 'mark' => mark, 'type' => type, 'x' => center - w / 2.0, 'width' => w,
                    'header' => hdr }.merge(Framing.opening_from_ro(type, h, head))
+            op['plies'] = plies if Framing::SIZES.include?(hdr)
             @last['head'] = res[2] if win
             test = p.merge('openings' => p['openings'] + [op])
             errs = Framing.validate(test, Project.header_table)
@@ -492,16 +507,6 @@ module DMACC
             vals = res
             next
           end
-          if hdr == Framing::RFI
-            q = UI.inputbox(['Your question (RFI)'],
-                            ["The header size for #{mark} (#{Framing.fmt_len(w)} RO, #{p['id']}) isn't on the plans or in the general notes. What header should be used?"],
-                            [''], "Request for Information - #{mark}")
-            unless q
-              vals = res
-              next
-            end
-            op['rfi'] = Project.submit_rfi(p['id'], mark, q[0].to_s.strip)
-          end
           model = Sketchup.active_model
           model.start_operation('Add Opening', true)
           p = Builder.params_of(g)
@@ -509,12 +514,14 @@ module DMACC
           Builder.set_params(g, p)
           Builder.rebuild(g)
           model.commit_operation
-          held = op['rfi'] ? "RFI ##{op['rfi']} is submitted. #{mark} is on hold until the answer comes back - " \
-                             "keep working on other openings and walls in the meantime.\n\n" : ''
-          more = UI.messagebox("#{mark} is laid out.\n\n#{held}Another opening in #{p['id']}?", MB_YESNO)
+          rfi = hdr == Framing::RFI
+          held = rfi ? "Next you'll write the RFI for #{mark}'s header. #{mark} is on hold until the answer comes back.\n\n" : ''
+          more = UI.messagebox("#{mark} is laid out.\n\n#{held}Another opening in #{p['id']}? " \
+                               '(You can always right-click the wall to finish openings or remove one.)', MB_YESNO)
           Builder.set_flag(g, 'openings_done', true) unless more == IDYES
           Dialogs.refresh_yard
           Dialogs.refresh_frame
+          Dialogs.open_rfi(p['id'], mark) if rfi
           return :done
         end
       end
@@ -558,6 +565,7 @@ module DMACC
 
       def menu_items(menu, flags = nil, x = nil, y = nil, view = nil)
         pick(view, x, y) if view && x
+        return super(menu, flags, nil, nil, nil) if @mode == :dtp
         if @mark && @mark[5]
           g, = @mark
           pen = @mark[5]
@@ -567,9 +575,70 @@ module DMACC
             Builder.remove_pencil(g, pen)
             m.commit_operation
           end
-          return
+        end
+        if @target && king_needs_mark?(@target[2], @target[1]) && (@target[2]['hdr_marks'] || {})[@target[1].opening]
+          g, slot, p = @target
+          menu.add_item("Change #{slot.opening} header mark") { header_mark_popup(g, slot, Builder.params_of(g)) }
         end
         super(menu, flags, nil, nil, nil)
+        wall_items(menu)
+      end
+
+      # Openings: finish, remove one, or go back and add one.
+      def wall_items(menu)
+        g = @focus && Builder.find_wall(@focus) or return
+        p = Builder.params_of(g)
+        stage = Builder.stage(p)
+        id = p['id']
+        e = p['entries'] || {}
+        ws = Builder.work_slots(p)
+        if stage == 'openings'
+          label = p['openings'].empty? ? "#{id} has no openings - done" : "Done with openings on #{id}"
+          menu.add_item(label) { finish_openings(g) }
+        end
+        if %w[openings units].include?(stage)
+          p['openings'].each do |o|
+            framed = ws.any? { |s| s.opening == o['mark'] && Inspector.complete?(e[s.id]) }
+            next if framed
+            menu.add_item("Remove opening #{o['mark']} from #{id}") { remove_opening(g, o['mark']) }
+          end
+        end
+        if stage == 'units' && ws.none? { |s| s.phase == 'commons' && Inspector.complete?(e[s.id]) }
+          menu.add_item("Lay out another opening on #{id}") do
+            Builder.set_flag(g, 'openings_done', false)
+            Sketchup.status_text = "#{id}: pull the tape and pencil-mark the next opening centerline."
+            Dialogs.refresh_yard
+          end
+        end
+      end
+
+      def finish_openings(g)
+        before = Builder.stage(Builder.params_of(g))
+        m = Sketchup.active_model
+        m.start_operation('Done With Openings', true)
+        Builder.set_flag(g, 'openings_done', true)
+        m.commit_operation
+        announce(g, before)
+        update_ui
+        Dialogs.refresh_yard
+        Dialogs.refresh_frame
+      end
+
+      def remove_opening(g, mark)
+        return unless UI.messagebox("Remove #{mark} from #{Builder.params_of(g)['id']}?", MB_YESNO) == IDYES
+        m = Sketchup.active_model
+        m.start_operation("Remove #{mark}", true)
+        p = Builder.params_of(g)
+        p['openings'] = p['openings'].reject { |o| o['mark'] == mark }
+        (p['hdr_marks'] || {}).delete(mark)
+        p['openings_done'] = false if p['openings'].empty?
+        Builder.set_params(g, p)
+        Builder.rebuild(g)
+        m.commit_operation
+        Sketchup.status_text = "#{mark} removed."
+        update_ui
+        Dialogs.refresh_yard
+        Dialogs.refresh_frame
       end
 
       def pull(group, slot)
@@ -607,6 +676,7 @@ module DMACC
           fp = Builder.params_of(fg)
           # the wall you're working on
           draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), fp['height'].to_f], 'blue', 1)
+          draw_wall_label(view, fg, fp)
           if %w[openings commons].include?(Builder.stage(fp))
             draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), Framing::T], 'blue', @mark ? 3 : 2)
           end
@@ -666,6 +736,17 @@ module DMACC
                              end
         mid = Geom::Point3d.new((x0 + x1) / 2.0, 0, z1).transform(g.transformation)
         view.draw_text(view.screen_coords(mid), "  #{label}")
+      end
+
+      # Big ID over the wall you're working on.
+      def draw_wall_label(view, g, p)
+        pt = view.screen_coords(Geom::Point3d.new(p['length'].to_f / 2.0, 0, p['height'].to_f + 12).transform(g.transformation))
+        txt = "#{p['id']}  (#{Builder.stage(p)})"
+        begin
+          view.draw_text(pt, txt, size: 20, bold: true, color: 'blue', align: TextAlignCenter)
+        rescue StandardError
+          view.draw_text(pt, txt)
+        end
       end
 
       def update_ui

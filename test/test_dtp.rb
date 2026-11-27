@@ -76,7 +76,7 @@ top.(id.('W-102')); tool.onMouseMove(0,0,0,V)
 tool.set_mode(:nail); slot2 = Builder.work_slots(Builder.params_of(id.('W-102'))).find { |x| x.id == 'TP:2' }
 tool.instance_variable_set(:@target, [id.('W-102'), slot2, Builder.params_of(id.('W-102'))])
 m2 = Struct.new(:items) { def add_item(t, &b) = items << [t, b] }.new([]); tool.getMenu(m2)
-chk(m2.items.size == 1 && m2.items[0][0].include?('W-102 double plate piece'), "Frame mode right-click offers the piece: #{m2.items.map(&:first)}")
+chk(m2.items[0][0].include?('W-102 double plate piece'), "Frame mode right-click offers the piece: #{m2.items.map(&:first)}")
 tool.set_mode(:dtp)
 [60, 160].each { |x| top.(id.('W-101'), x); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
 Builder.dtp_free(id.('W-103')).each { |a, b| top.(id.('W-103'), (a + b) / 2); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }

@@ -16,6 +16,7 @@ module DMACC
       attr_reader :mode
 
       def activate
+        @active = true
         Builder.close_edits
         @target = nil   # [group, slot, params]
         @pile = nil     # [id, label, t]
@@ -40,7 +41,12 @@ module DMACC
       end
 
       def deactivate(view)
+        @active = false
         view.invalidate
+      end
+
+      def active?
+        @active
       end
 
       def resume(view)

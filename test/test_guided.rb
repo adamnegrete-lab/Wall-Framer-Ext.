@@ -22,7 +22,7 @@ UI.answers[:inputbox] = lambda do |prompts, vals, lists, title|
   end
   if title.include?(') - Lay out an opening')
     @detail_prompts << prompts
-    next @cur[2] == 'Window' ? @cur[3..6] : [@cur[3], @cur[4], @cur[6]]
+    next @cur[2] == 'Window' ? @cur[3..6] + ['3'] : [@cur[3], @cur[4], @cur[6], '3']
   end
   if title.start_with?('Mark the kings')
     o = Builder.params_of(g)['openings'].find { |op| title.end_with?(op['mark']) }
@@ -34,7 +34,7 @@ UI.answers[:inputbox] = lambda do |prompts, vals, lists, title|
   raise "no slot for #{title}" unless s
   x = s.expected
   @tips << prompts.join(' ') if x['role'] == 'Jack Stud'
-  next [Framing.fmt_len(x['length']), s.plies.to_s] if x['role'] == 'Header' # size comes from the opening
+  next [Framing.fmt_len(x['length'])] if x['role'] == 'Header' # size + plies come from the opening
   [x['size'], Framing.fmt_len(x['length'])]
 end
 @ops = [["4'", 'W1', 'Window', '36', '48', '82 1/2', '2x8'], ["11'", 'D1', 'Door', '38', '82 1/2', '', '2x10']]
@@ -77,11 +77,11 @@ end
 while Builder.stage(Builder.params_of(g)) == 'units' && n < 60
   next_click.call; n += 1
 end
-chk(@detail_prompts.size == 2 && @detail_prompts[0].size == 4 && @detail_prompts[1].size == 3 &&
+chk(@detail_prompts.size == 2 && @detail_prompts[0].size == 5 && @detail_prompts[1].size == 4 && @detail_prompts[0].last.include?('plies') &&
     @detail_prompts[1].none? { |pr| pr.start_with?('Head height') }, 'second pop-up fits the type: doors skip head height')
 chk(@prompts1.size == 3, 'first opening pop-up: centerline, mark, type')
 chk(Builder.params_of(g)['hdr_marks'] == { 'W1' => 82.5, 'D1' => 82.5 }, "header heights marked on the kings: #{Builder.params_of(g)['hdr_marks']}")
-chk(@tips.any? { |t| t.include?("header mark on the kings is at 6' 10-1/2\"") }, "jack pop-up shows the student's header mark: #{@tips.first}")
+chk(@tips.any? { |t| t.include?("(header mark: 6' 10-1/2\")") }, "jack pop-up shows the student's header mark: #{@tips.first}")
 chk(popups.none? { |t| t =~ /header/i && t.include?('Lumber') }, 'header pop-up never asks the size again')
 chk(Builder.stage(Builder.params_of(g)) == 'commons', "opening units built with #{n} pop-ups")
 chk(UI.messages.any? { |m| m.include?('choose its corner assembly') }, 'prompted for corner assemblies + spacing')

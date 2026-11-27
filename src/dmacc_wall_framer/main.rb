@@ -277,6 +277,17 @@ module DMACC
       UI.start_timer(8, false) { Updater.check(quiet: true) } # quiet check at startup
 
       UI.add_context_menu_handler do |cm|
+        # If SketchUp shows its own menu while framing, the framing items go on top of it too.
+        t = Dialogs.tool
+        if t.respond_to?(:active?) && t.active?
+          before = cm.respond_to?(:add_separator)
+          begin
+            t.menu_items(cm)
+          rescue StandardError => e
+            puts "Wall Framer menu: #{e.message}"
+          end
+          cm.add_separator if before
+        end
         next unless Builder.selected_walls.size >= 1
         sub = cm.add_submenu('Wall Framer')
         if Builder.selected_walls.size == 1

@@ -34,7 +34,7 @@ module DMACC
           'tape_readout' => false,        # show a tape reading while marking (off = use Tape Measure)
           'guided' => true,               # pop-up framing: click a piece, enter its length
           'popup_tips' => true,           # pop-ups say how to measure (not the answer)
-          'rfi_delay_min' => 32,          # RFIs answer themselves after this long (students don't see a timer)
+          'rfi_delay_min' => 1,           # TEST setting - normally 32          # RFIs answer themselves after this long (students don't see a timer)
           'ladder_oc' => 24               # ladder blocking spacing at tees
         },
         'pw_hash' => nil,
@@ -44,7 +44,8 @@ module DMACC
         'yard' => nil,        # material yard (piles, cart, offcuts)
         'dtp_order' => [],
         'dtp_seq' => nil,     # double plate pieces in the order they went on
-        'rfis' => [],         # requests for information (header sizes not on the plans)
+        'rfis' => [],
+        'sfpa' => nil,        # header tables imported by the instructor (kept in the model, not the extension)         # requests for information (header sizes not on the plans)
         # Header span table for this assignment, entered by the instructor from the
         # code book (IRC 2024 Table R602.7(1)) for the assignment's conditions.
         'span_table' => [],   # [{'size'=>'2x8','plies'=>2,'span'=>inches,'jacks'=>1}]
@@ -154,17 +155,47 @@ module DMACC
           p = Builder.params_of(g)
           o = p['openings'].find { |x| x['mark'] == rfi['mark'] } or return nil
           unless p['bearing']
-            return { 'header' => Framing::FLAT, 'text' => "#{rfi['mark']} is in a non-bearing wall - use (2) 2x4 flat. " \
-                                                         'Load-bearing headers are not required in non-bearing walls (IRC R602.7.4).' }
+            return { 'header' => Framing::FLAT, 'text' => "#{rfi['mark']} is in a non-bearing wall - use (2) 2x4 flat." }
           end
+          sfpa_answer(g, o) || span_table_answer(o)
+        end
+
+        # Header tables: roof only (nothing framed above) or roof + wall + floor,
+        # looked up by the clear opening and the span the wall carries.
+        def sfpa_answer(g, o)
+          t = data['sfpa'] or return nil
+          key = Builder.floor_above?(g) ? 'roof_floor' : 'roof'
+          span_ft = Builder.building_span(g) / 12.0
+          ci = t['spans'].index { |s| s >= span_ft - 0.01 } or return nil
+          ri = t['openings'].index { |w| w >= o['width'].to_f - 0.01 } or return nil
+          cell = t[key][ri][ci]
+          return nil unless cell['size'] # glulam - the instructor answers that one
+          { 'header' => cell['size'], 'plies' => cell['plies'].to_i,
+            'text' => "#{o['mark']}: use (#{cell['plies']}) #{cell['size']}." }
+        end
+
+        def span_table_answer(o)
           span = o['width'].to_f
           row = data['span_table'].select { |r| r['span'].to_f >= span - 1e-6 && Framing::ACTUAL[r['size']] }
                                   .min_by { |r| [Framing::ACTUAL[r['size']], r['plies'].to_i] }
           return nil unless row
           cond = data['span_conditions'].to_s.strip
-          { 'header' => row['size'], 'plies' => row['plies'].to_i, 'jacks' => [row['jacks'].to_i, 1].max,
-            'text' => "#{rfi['mark']}: use (#{row['plies']}) #{row['size']} with #{row['jacks']} jack stud#{row['jacks'].to_i == 1 ? '' : 's'} " \
-                      "each side#{cond.empty? ? '' : " (#{cond})"}." }
+          { 'header' => row['size'], 'plies' => row['plies'].to_i,
+            'text' => "#{o['mark']}: use (#{row['plies']}) #{row['size']}#{cond.empty? ? '' : " (#{cond})"}." }
+        end
+
+        # Why an RFI can't answer itself (for the instructor), or nil.
+        def rfi_stuck_reason(rfi)
+          return nil if rfi['answer'] || rfi_answer(rfi)
+          return 'no header tables imported (Project Setup)' unless data['sfpa'] || data['span_table'].any?
+          'the table calls for glulam or the house is wider than 40\' - answer it yourself'
+        end
+
+        def import_sfpa(path)
+          t = JSON.parse(File.read(path))
+          raise 'not a Wall Framer header table file' unless t['roof'] && t['roof_floor'] && t['spans'] && t['openings']
+          update { |d| d['sfpa'] = t }
+          t
         end
 
         # Answer one RFI now (instructor) or every RFI whose time is up.
