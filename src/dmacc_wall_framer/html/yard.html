@@ -40,43 +40,90 @@
   .note { color: var(--mute); font-size: 12px; }
   .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px 10px; font-size: 12px; }
   #status { color: var(--err); font-size: 12px; min-height: 1em; }
+  .tabs { display: flex; position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .tabs button { flex: 1; border: none; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 8px 4px; font-weight: 600; color: var(--mute); }
+  .tabs button.on { color: var(--ink); border-bottom-color: var(--ink); background: #fff; }
+  .badge { display: inline-block; min-width: 16px; padding: 0 5px; margin-left: 4px; border-radius: 8px; background: var(--err); color: #fff; font-size: 11px; line-height: 16px; }
+  .pane { display: none; }
+  .pane.on { display: block; }
+  .what { font-size: 12px; color: var(--mute); padding: 8px 14px 0; }
+  .item { border: 1px solid #ddd; border-radius: 4px; padding: 6px 8px; margin: 6px 0; font-size: 12px; }
+  .item.new { border-color: var(--ink); background: #fffbe6; }
+  .item .k { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--mute); }
+  .item .t { font-weight: 600; }
+  .item.new .t::after { content: '  NEW'; color: var(--err); font-size: 11px; }
+  .wl { display: flex; gap: 6px; padding: 4px 0; border-bottom: 1px solid #eee; font-size: 12px; cursor: pointer; }
+  .wl:hover { background: #f2f2f2; }
+  .wl .id { font-weight: 600; width: 60px; }
+  .wl .st { flex: 1; color: var(--mute); }
+  .wl .hold { color: var(--err); }
 </style>
 </head>
 <body>
-<section id="wall"></section>
+<nav class="tabs" role="tablist">
+  <button data-tab="wall" role="tab">This Wall</button>
+  <button data-tab="notes" role="tab">Job Notes<span id="badge"></span></button>
+  <button data-tab="building" role="tab">Building</button>
+  <button data-tab="material" role="tab">Material</button>
+  <button data-tab="inst" role="tab" id="tab-inst">Instructor</button>
+</nav>
 
-<section id="rfis"></section>
-<section id="building"></section>
-<div id="mode-note" class="note" style="padding:4px 14px;background:#eee"></div>
-<section class="saw adv">
-  <h2>Saw</h2>
-  <div id="hand" class="note"></div>
-  <div class="stop">
-    <label for="cut"><strong>Saw stop</strong></label>
-    <input id="cut" placeholder="full length">
-    <button id="setcut">Set</button>
-    <button id="clearcut">Full length</button>
-  </div>
-  <label><input type="checkbox" id="offcuts"> Offcuts first (best fit from the offcut pile)</label>
-  <div class="note" id="kerf"></div>
-  <div id="status"></div>
-</section>
+<div class="pane" id="pane-wall">
+  <div class="what">The wall you're working on: its steps, what's next, inspections. Hover a wall (or pick one under Building) to switch.</div>
+  <section id="wall"></section>
+  <div id="mode-note" class="note" style="padding:4px 14px;background:#eee"></div>
+</div>
 
-<section class="adv">
-  <h2>Stock - click to load it</h2>
-  <div class="stock" id="piles"></div>
-</section>
+<div class="pane" id="pane-notes">
+  <div class="what">Everything that came back on this job: RFI answers, inspection results, and notes from your instructor. Newest first.</div>
+  <section id="notes"></section>
+</div>
 
-<section class="adv">
-  <details id="offdet"><summary id="offsum">Offcut pile</summary><div id="offcuts-list"></div></details>
-  <details id="cartdet"><summary id="cartsum">Cart</summary><div id="cart"></div></details>
-</section>
+<div class="pane" id="pane-building">
+  <div class="what">The whole house: every wall and where it stands, and the double top plates once every wall is framed.</div>
+  <section><h2>Walls</h2><div id="walls"></div></section>
+  <section id="building"></section>
+</div>
 
-<section>
-  <h2>Material use</h2>
-  <div class="stats" id="stats"></div>
-  <div id="instructor" style="display:none;margin-top:8px"><button id="restock">Restock yard (instructor)</button></div>
-</section>
+<div class="pane" id="pane-material">
+  <div class="what">Lumber: what you've pulled, nailed, and wasted.</div>
+  <section class="saw adv">
+    <h2>Saw</h2>
+    <div id="hand" class="note"></div>
+    <div class="stop">
+      <label for="cut"><strong>Saw stop</strong></label>
+      <input id="cut" placeholder="full length">
+      <button id="setcut">Set</button>
+      <button id="clearcut">Full length</button>
+    </div>
+    <label><input type="checkbox" id="offcuts"> Offcuts first (best fit from the offcut pile)</label>
+    <div class="note" id="kerf"></div>
+  </section>
+  <section class="adv">
+    <h2>Stock - click to load it</h2>
+    <div class="stock" id="piles"></div>
+  </section>
+  <section class="adv">
+    <details id="offdet"><summary id="offsum">Offcut pile</summary><div id="offcuts-list"></div></details>
+    <details id="cartdet"><summary id="cartsum">Cart</summary><div id="cart"></div></details>
+  </section>
+  <section>
+    <h2>Material use</h2>
+    <div class="stats" id="stats"></div>
+  </section>
+</div>
+
+<div class="pane" id="pane-inst">
+  <div class="what">Instructor only (unlocked): answer RFIs early, post a job note, restock the yard.</div>
+  <section id="rfis"></section>
+  <section>
+    <h2>Post a job note</h2>
+    <textarea id="note-text" rows="3" style="width:100%;font:inherit" placeholder="Shows up in every student's Job Notes for this file"></textarea>
+    <div class="btns"><button id="post-note">Post note</button></div>
+  </section>
+  <section><div id="instructor"><button id="restock">Restock yard</button></div></section>
+</div>
+<div id="status" style="padding:4px 14px"></div>
 
 <script>
 var S = null;
@@ -163,7 +210,7 @@ function renderRfis(list) {
   var box = $('rfis'); box.innerHTML = '';
   if (!list || !list.length) { box.style.display = 'none'; return; }
   box.style.display = '';
-  box.appendChild(el('h2', { text: 'RFIs' }));
+  box.appendChild(el('h2', { text: 'RFIs - time left and early answers (students only see "awaiting response")' }));
   list.slice().reverse().forEach(function (r) {
     var d = el('div', { 'class': 'summary ' + (r.answer ? 'ok' : '') }, [
       el('strong', { text: 'RFI #' + r.n + ' - ' + r.wall + ' ' + r.mark + ' (' + r.status + ')' }),
@@ -182,8 +229,49 @@ function renderRfis(list) {
   });
 }
 
+var TAB = 'wall';
+function showTab(t, clicked) {
+  TAB = t;
+  document.querySelectorAll('.tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
+  document.querySelectorAll('.pane').forEach(function (p) { p.classList.toggle('on', p.id === 'pane-' + t); });
+  if (clicked && t === 'notes' && S && S.notes && S.notes.unseen) call('notes_seen');
+}
+document.querySelectorAll('.tabs button').forEach(function (b) { b.onclick = function () { showTab(b.dataset.tab, true); }; });
+
+function renderNotes(n) {
+  var box = $('notes'); box.innerHTML = '';
+  $('badge').innerHTML = '';
+  if (n && n.unseen) $('badge').appendChild(el('span', { 'class': 'badge', text: n.unseen }));
+  if (!n || !n.items.length) { box.appendChild(el('div', { 'class': 'note', text: 'Nothing yet. RFI answers and inspection results show up here.' })); return; }
+  n.items.forEach(function (it) {
+    var d = el('div', { 'class': 'item' + (it.unseen ? ' new' : '') }, [
+      el('div', { 'class': 'k', text: it.kind + (it.when ? ' - ' + it.when : '') }),
+      el('div', { 'class': 't', text: it.title })]);
+    it.lines.forEach(function (l) { d.appendChild(el('div', { text: l })); });
+    if (it.kind === 'Note' && S.instructor) d.appendChild(el('div', { 'class': 'btns' }, [el('button', { text: 'Delete', onclick: function () { call('delete_note', { i: it.i }); } })]));
+    box.appendChild(d);
+  });
+}
+var STAGES = { corners: 'corners to set', plates: 'plates', openings: 'laying out openings', units: 'framing openings',
+  commons: 'studs', cripples: 'cripples + header blocks', framed: 'framed' };
+function renderWalls(ws) {
+  var box = $('walls'); box.innerHTML = '';
+  if (!ws || !ws.length) { box.appendChild(el('div', { 'class': 'note', text: 'No walls yet.' })); return; }
+  ws.forEach(function (w) {
+    box.appendChild(el('div', { 'class': 'wl', title: 'Work on ' + w.id, onclick: function () { call('focus', { id: w.id }); showTab('wall'); } }, [
+      el('span', { 'class': 'id', text: w.id }),
+      el('span', { 'class': 'st', text: w.level + ' - ' + (STAGES[w.stage] || w.stage) }),
+      w.held.length ? el('span', { 'class': 'hold', text: 'on hold: ' + w.held.join(', ') }) : null]));
+  });
+}
+
 function load(state) {
   S = state;
+  $('tab-inst').style.display = state.instructor ? '' : 'none';
+  if (TAB === 'inst' && !state.instructor) TAB = 'wall';
+  showTab(TAB);
+  renderNotes(state.notes);
+  renderWalls(state.walls);
   renderRfis(state.rfis);
   renderWall(state.wall);
   renderBuilding(state.building);
@@ -224,7 +312,6 @@ function load(state) {
    ['Offcuts', st.offcut_lf + ' LF'], ['Scrap', st.scrap_lf + ' LF'], ['Not nailed', st.waste_pct + '%']].forEach(function (a) {
     sx.appendChild(el('div', {}, [el('strong', { text: a[0] + ': ' }), document.createTextNode(String(a[1]))]));
   });
-  $('instructor').style.display = state.instructor ? '' : 'none';
 }
 function setStatus(t) { $('status').textContent = t || ''; }
 $('setcut').onclick = function () { call('set_cut', { text: $('cut').value }); };
@@ -232,6 +319,7 @@ $('cut').addEventListener('keydown', function (e) { if (e.key === 'Enter') { cal
 $('clearcut').onclick = function () { $('cut').value = ''; call('set_cut', { text: '' }); };
 $('offcuts').onchange = function () { call('toggle_offcuts', { on: $('offcuts').checked }); };
 $('restock').onclick = function () { call('restock'); };
+$('post-note').onclick = function () { var t = $('note-text').value.trim(); if (t) { call('post_note', { text: t }); $('note-text').value = ''; } };
 window.onload = function () { sketchup.ready(''); };
 </script>
 </body>

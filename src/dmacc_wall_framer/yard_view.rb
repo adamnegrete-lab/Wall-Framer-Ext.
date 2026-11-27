@@ -27,7 +27,7 @@ module DMACC
           stud_types = d['wall_types'].map { |t| { 'stud' => t['stud'], 'stud_length' => Framing.stud_length(t) } }
           hdr = (d['header_table'].map { |_, s| s } + Builder.all_walls.flat_map do |w|
             Builder.params_of(w)['openings'].map { |o| Framing.header_for(o, Project.header_table) }
-          end).uniq
+          end).uniq.select { |sz| Framing::ACTUAL[sz] } # flat headers come off the 2x4 pile; RFIs aren't sized yet
           YardLogic.default_piles(stud_types, hdr)
         end
 

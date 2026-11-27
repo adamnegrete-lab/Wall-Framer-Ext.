@@ -1,3 +1,4 @@
+require 'fileutils'
 require 'json'
 require 'digest'
 
@@ -45,6 +46,8 @@ module DMACC
         'dtp_order' => [],
         'dtp_seq' => nil,     # double plate pieces in the order they went on
         'rfis' => [],
+        'notes' => [],        # job notes the instructor posts
+        'notes_seen_at' => 0, # Job Notes tab last opened
         'sfpa' => nil,        # header tables imported by the instructor (kept in the model, not the extension)         # requests for information (header sizes not on the plans)
         # Header span table for this assignment, entered by the instructor from the
         # code book (IRC 2024 Table R602.7(1)) for the assignment's conditions.
@@ -163,7 +166,7 @@ module DMACC
         # Header tables: roof only (nothing framed above) or roof + wall + floor,
         # looked up by the clear opening and the span the wall carries.
         def sfpa_answer(g, o)
-          t = data['sfpa'] or return nil
+          t = sfpa_tables or return nil
           key = Builder.floor_above?(g) ? 'roof_floor' : 'roof'
           span_ft = Builder.building_span(g) / 12.0
           ci = t['spans'].index { |s| s >= span_ft - 0.01 } or return nil
@@ -187,7 +190,7 @@ module DMACC
         # Why an RFI can't answer itself (for the instructor), or nil.
         def rfi_stuck_reason(rfi)
           return nil if rfi['answer'] || rfi_answer(rfi)
-          return 'no header tables imported (Project Setup)' unless data['sfpa'] || data['span_table'].any?
+          return 'no header tables imported (Project Setup)' unless sfpa_tables || data['span_table'].any?
           'the table calls for glulam or the house is wider than 40\' - answer it yourself'
         end
 
@@ -195,7 +198,40 @@ module DMACC
           t = JSON.parse(File.read(path))
           raise 'not a Wall Framer header table file' unless t['roof'] && t['roof_floor'] && t['spans'] && t['openings']
           update { |d| d['sfpa'] = t }
+          save_local_sfpa(t)
           t
+        end
+
+        # A copy kept on this computer (not in the extension download), so every
+        # model you open or start here gets the tables without importing again.
+        def local_dir
+          File.join(ENV['WALLFRAMER_HOME'] || ENV['APPDATA'] || Dir.home, 'DMACC Wall Framer')
+        end
+
+        def local_sfpa_path
+          File.join(local_dir, 'header_tables.json')
+        end
+
+        def save_local_sfpa(t)
+          FileUtils.mkdir_p(local_dir)
+          File.write(local_sfpa_path, JSON.generate(t))
+        rescue StandardError
+          nil
+        end
+
+        def local_sfpa
+          File.exist?(local_sfpa_path) ? JSON.parse(File.read(local_sfpa_path)) : nil
+        rescue StandardError
+          nil
+        end
+
+        # The model's tables; fills them in from this computer's copy if the model has none.
+        def sfpa_tables
+          t = data['sfpa']
+          return t if t
+          lt = local_sfpa or return nil
+          update { |d| d['sfpa'] = lt }
+          lt
         end
 
         # Answer one RFI now (instructor) or every RFI whose time is up.
@@ -234,6 +270,7 @@ module DMACC
               o['plies'] = ans['plies'] if ans['plies']
               o['jacks'] = ans['jacks'] if ans['jacks']
               o.delete('rfi')
+              o['rfi_new'] = rfi['n'] # read it when you click the opening
               o
             end
             Builder.set_params(g, p)
@@ -247,7 +284,7 @@ module DMACC
         end
 
         def log_inspection(entry)
-          update { |d| d['log'] << entry.merge('time' => Time.now.strftime('%Y-%m-%d %H:%M')) }
+          update { |d| d['log'] << entry.merge('time' => Time.now.strftime('%Y-%m-%d %H:%M'), 'at' => Time.now.to_i, 'summary' => entry['summary']) }
         end
       end
     end

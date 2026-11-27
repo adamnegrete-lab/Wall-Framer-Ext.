@@ -150,7 +150,9 @@ module DMACC
           g, slot, p = @target
           before = Builder.stage(p)
           op = slot.opening && p['openings'].find { |o| o['mark'] == slot.opening }
-          if op && op['header'] == Framing::RFI && !op['rfi']
+          if op && op['rfi_new']
+            read_rfi_answer(g, op)
+          elsif op && op['header'] == Framing::RFI && !op['rfi']
             Dialogs.open_rfi(p['id'], op['mark'])
           elsif slot.kind == :backing
             tee_popup(g, slot, p)
@@ -375,6 +377,36 @@ module DMACC
                                  "Your jacks run from the top of the bottom plate up to the mark."
           Dialogs.refresh_frame
           return jl
+        end
+      end
+
+      # The RFI answer, read when the student goes back to the opening.
+      def read_rfi_answer(g, op)
+        r = (Project.data['rfis'] || []).find { |x| x['n'] == op['rfi_new'] }
+        UI.messagebox("RFI ##{op['rfi_new']} - #{op['mark']}\n\nQ: #{r && r['question']}\n\nA: #{r && r['answer']}\n\n" \
+                      "#{op['mark']} is off hold. It's saved in Job Notes (Framing panel) if you need it again.")
+        m = Sketchup.active_model
+        m.start_operation('Read RFI Answer', true, false, true)
+        p = Builder.params_of(g)
+        p['openings'] = p['openings'].map { |o| o['mark'] == op['mark'] ? o.reject { |k, _| k == 'rfi_new' } : o }
+        Builder.set_params(g, p)
+        m.commit_operation
+        Dialogs.refresh_yard
+      end
+
+      # Tags on openings: on hold (RFI out) / RFI answered (click to read)
+      def draw_opening_tags(view, g, p)
+        p['openings'].each do |o|
+          txt = if o['rfi_new'] then "#{o['mark']}: RFI answered - click to read"
+                elsif o['header'] == Framing::RFI then "#{o['mark']}: ON HOLD - #{o['rfi'] ? "RFI ##{o['rfi']} out" : 'RFI not sent'}"
+                end
+          next unless txt
+          pt = Geom::Point3d.new(o['x'].to_f + o['width'].to_f / 2.0, 0, o['height'].to_f + 6).transform(g.transformation)
+          begin
+            view.draw_text(view.screen_coords(pt), txt, size: 14, bold: true, color: o['rfi_new'] ? 'green' : 'red', align: TextAlignCenter)
+          rescue StandardError
+            view.draw_text(view.screen_coords(pt), txt)
+          end
         end
       end
 
@@ -677,6 +709,7 @@ module DMACC
           # the wall you're working on
           draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), fp['height'].to_f], 'blue', 1)
           draw_wall_label(view, fg, fp)
+          draw_opening_tags(view, fg, fp)
           if %w[openings commons].include?(Builder.stage(fp))
             draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), Framing::T], 'blue', @mark ? 3 : 2)
           end

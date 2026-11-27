@@ -143,7 +143,7 @@ module DMACC
         li = ops.map do |o|
           sill = o['type'] == 'Window' ? ", head height #{Framing.fmt_in(o['height'])}" : ''
           "<li><strong>#{h(o['mark'])}</strong> #{h(o['type'])}: RO #{Framing.fmt_in(o['width'])} x #{Framing.fmt_in(Framing.ro_height(o))}#{sill}, " \
-            "left edge of RO at #{h(Framing.fmt_len(o['x']))} from start, header #{h(Framing.header_for(o, table))}</li>"
+            "left edge of RO at #{h(Framing.fmt_len(o['x']))} from start, header #{h(Framing.header_label(o))}</li>"
         end
         "<h2>Openings</h2><ul>#{li.join}</ul>"
       end

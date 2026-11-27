@@ -1,5 +1,5 @@
 {
-  "version": "0.12.1",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.12.1.rbz",
-  "notes": "New Demo tool (toolbar, next to the Tape Measure): hover a piece and click to pull it."
+  "version": "0.13.0",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.0.rbz",
+  "notes": "Framing panel redone with tabs (This Wall, Job Notes, Building, Material, Instructor). RFI answers go to Job Notes - no pop-up mid-click. Header tables are remembered on the instructor's computer."
 }

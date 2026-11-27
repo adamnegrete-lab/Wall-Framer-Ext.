@@ -1,3 +1,5 @@
+require 'tmpdir'
+ENV['WALLFRAMER_HOME'] = Dir.mktmpdir('wf_home')
 # Minimal fake SketchUp API - just enough to run the extension's code paths.
 $loaded = {}
 def file_loaded?(f) = $loaded[f]

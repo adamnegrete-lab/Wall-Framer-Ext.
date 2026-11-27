@@ -236,7 +236,7 @@ module DMACC
           Builder.set_params(g, p)
           Builder.rebuild(g)
           Project.log_inspection('wall' => p['id'], 'correct' => full['correct'], 'total' => full['total'],
-                                 'wrong' => full['wrong'], 'blank' => full['blank'])
+                                 'wrong' => full['wrong'], 'blank' => full['blank'], 'summary' => res['summary'])
           res
         end
 
@@ -292,13 +292,47 @@ module DMACC
         # RFIs that just got their answers: tell the student, and the opening is off hold.
         def notify_rfis(done)
           return if done.nil? || done.empty?
-          done.each do |r|
-            UI.messagebox("RFI ##{r['n']} answered (#{r['wall']}, #{r['mark']})\n\nQ: #{r['question']}\n\nA: #{r['answer']}\n\n" \
-                          "#{r['mark']} is off hold - frame it to the answer.")
-          end
+          # No pop-up: it would land in the middle of someone's clicking. The answer goes to
+          # Job Notes (badge) and the opening is tagged until they click it and read it.
+          marks = done.map { |r| "#{r['mark']}" }.join(', ')
+          Sketchup.status_text = "RFI answered for #{marks} - see Job Notes in the Framing panel, or click the opening."
           refresh_frame
           refresh_yard
           Sketchup.active_model.active_view.invalidate
+        end
+
+        # Job Notes: RFIs, inspections, instructor notes - newest first.
+        def job_notes
+          d = Project.data
+          seen = d['notes_seen_at'].to_f
+          items = []
+          (d['rfis'] || []).each do |r|
+            at = (r['answered_at'] || r['at']).to_i
+            items << { 'kind' => 'RFI', 'at' => at, 'unseen' => !!r['answer'] && at > seen,
+                       'title' => "RFI ##{r['n']} - #{r['wall']} #{r['mark']} - #{r['answer'] ? 'answered' : 'waiting on answer'}",
+                       'lines' => ["Q: #{r['question']}"] + (r['answer'] ? ["A: #{r['answer']}"] : ["#{r['mark']} is on hold until the answer comes back."]) }
+          end
+          (d['log'] || []).last(40).each do |l|
+            at = l['at'].to_i
+            items << { 'kind' => 'Inspection', 'at' => at, 'unseen' => at > seen,
+                       'title' => "Inspection - #{l['wall']}",
+                       'lines' => [l['summary'] || "#{l['correct']}/#{l['total']} correct"] }
+          end
+          (d['notes'] || []).each_with_index do |n, i|
+            items << { 'kind' => 'Note', 'at' => n['at'].to_f, 'unseen' => n['at'].to_f > seen, 'i' => i,
+                       'title' => 'Job note', 'lines' => [n['text']] }
+          end
+          items.sort_by! { |x| -x['at'] }
+          items.each { |x| x['when'] = x['at'].positive? ? Time.at(x['at']).strftime('%m/%d %I:%M %p') : ''; x['at'] = x['at'].to_i }
+          { 'items' => items, 'unseen' => items.count { |x| x['unseen'] } }
+        end
+
+        def walls_list
+          Builder.all_walls.map do |w|
+            p = Builder.params_of(w)
+            held = p['openings'].select { |o| o['header'] == Framing::RFI }.map { |o| o['mark'] }
+            { 'id' => p['id'], 'level' => p['level'], 'type' => p['type'], 'stage' => Builder.stage(p), 'held' => held }
+          end.sort_by { |x| [x['level'], x['id']] }
         end
 
         # For the Framing panel. Students see status only; the instructor sees time left.
@@ -377,6 +411,29 @@ module DMACC
             @tool.set_mode('dtp')
             top_view
             send_yard
+          end
+          d.add_action_callback('notes_seen') do |_c, _a|
+            Project.update { |dd| dd['notes_seen_at'] = Time.now.to_f }
+            send_yard
+          end
+          d.add_action_callback('post_note') do |_c, a|
+            next unless Project.instructor?
+            txt = JSON.parse(a)['text'].to_s.strip
+            next if txt.empty?
+            operation('Post Job Note') { Project.update { |dd| (dd['notes'] ||= []) << { 'text' => txt, 'at' => Time.now.to_f } } }
+            send_yard
+          end
+          d.add_action_callback('delete_note') do |_c, a|
+            next unless Project.instructor?
+            i = JSON.parse(a)['i'].to_i
+            operation('Delete Job Note') { Project.update { |dd| (dd['notes'] ||= []).delete_at(i) } }
+            send_yard
+          end
+          d.add_action_callback('focus') do |_c, a|
+            id = JSON.parse(a)['id']
+            @tool.focus(id) if @tool.respond_to?(:focus)
+            focus_wall(id)
+            Sketchup.active_model.active_view.invalidate
           end
           d.add_action_callback('answer_rfi') do |_c, a|
             next unless Project.instructor?
@@ -518,6 +575,8 @@ module DMACC
                'guided' => !!Project.settings['guided'],
                'building' => building_state,
                'rfis' => rfi_state,
+               'notes' => job_notes,
+               'walls' => walls_list,
                'stock' => y['stock'], 'cut_text' => y['cut'] ? len_text(y['cut']) : '',
                'use_offcuts' => !!y['use_offcuts'],
                'hand' => h && fmt.call(h),
@@ -580,7 +639,7 @@ module DMACC
                'header_table' => dat['header_table'].map { |w, s| { 'width_text' => w.to_f >= 9999 ? 'any' : len_text(w), 'size' => s } },
                'span_table' => (dat['span_table'] || []).map { |r| r.merge('span_text' => len_text(r['span'])) },
                'span_conditions' => dat['span_conditions'].to_s,
-               'sfpa' => dat['sfpa'] && dat['sfpa']['source'],
+               'sfpa' => (t = Project.sfpa_tables) && t['source'],
                'settings' => dat['settings'],
                'kerf_text' => Framing.fmt_in(dat['settings']['kerf'] || YardLogic::KERF),
                'feedback_levels' => Inspector::LEVELS.to_a,
