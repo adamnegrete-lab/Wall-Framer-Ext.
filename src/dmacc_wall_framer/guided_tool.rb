@@ -299,6 +299,7 @@ module DMACC
         else
           sizes = '2x4|2x6'
           size = sizes.split('|').include?(defaults[0]) ? defaults[0] : p['stud']
+          tip = plate_tip(p, slot) || tip
           prompts << 'Lumber size' << "Cut length#{tip}"
           lists << sizes << ''
           vals << size << defaults[1]
@@ -314,6 +315,12 @@ module DMACC
             vals = res
             next
           end
+          if Framing.plate?(slot) && len > Framing::STOCK_MAX + 1e-6
+            UI.messagebox("Longest plate stock is 16'. Splice the plate: cut the first piece to land the splice " \
+                          'centered on a stud (from the arrow end), then click the plate again for the rest.')
+            vals = res
+            next
+          end
           plies = header ? slot.plies.to_i : 1
           model = Sketchup.active_model
           model.start_operation("Nail #{role}", true)
@@ -324,11 +331,24 @@ module DMACC
             return
           end
           @last[role] = header ? [size, res[0]] : [res[0], res[1]]
-          Sketchup.status_text = "Nailed #{plies > 1 ? "#{plies} x " : ''}#{size} x #{Framing.fmt_len(len)} - #{slot.label}."
+          more = Framing.plate?(slot) && (Builder.params_of(g)['entries'][slot.id] || {})['full'] == false
+          Sketchup.status_text = "Nailed #{plies > 1 ? "#{plies} x " : ''}#{size} x #{Framing.fmt_len(len)} - #{slot.label}." +
+                                 (more ? ' Spliced - click the plate again for the next piece.' : '')
           break
         end
         Dialogs.refresh_yard
         Dialogs.refresh_frame
+      end
+
+      # Plates over 16' get spliced: first piece from the arrow end, then the rest.
+      def plate_tip(p, slot)
+        return nil unless Framing.plate?(slot) && p['length'].to_f > Framing::STOCK_MAX
+        e = (p['entries'] || {})[slot.id]
+        if e && (e['pieces'] || []).any?
+          ' - next piece, from the splice toward the far end'
+        else
+          " - longest stock is 16'. Splice it: first piece from the arrow end, splice centered on a stud"
+        end
       end
 
       def tip_for(slot, p)

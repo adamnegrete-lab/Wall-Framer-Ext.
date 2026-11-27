@@ -455,20 +455,53 @@ module DMACC
           elsif slot.id == 'TP:2' && entry['segs']
             # double top plate placed as a building step: lapped / broken at joints
             entry['segs'].map { |a, b| Member.new(role, size, b - a, a, 0.0, slot.z, b - a, width, T) }
-          elsif slot.id == 'BP' && !(cuts = door_cuts(w)).empty?
-            # bottom plate is cut out at doors once it's nailed in
-            pieces = []
-            x0 = slot.x
-            stop = slot.x + len
-            cuts.each do |a, b|
-              pieces << [x0, [a, stop].min] if a > x0
-              x0 = [x0, b].max
+          elsif plate?(slot)
+            # plates: one member per piece (spliced plates show the joint); bottom plate cut out at doors
+            cuts = slot.id == 'BP' ? door_cuts(w) : []
+            plate_spans(w, entry).flat_map do |a0, b0|
+              segs = [[a0, b0]]
+              cuts.each do |ca, cb|
+                segs = segs.flat_map { |a, b| cb <= a || ca >= b ? [[a, b]] : [[a, ca], [cb, b]].select { |x, y| y - x > 0.01 } }
+              end
+              segs.map { |a, b| Member.new(role, size, b0 - a0, a, 0.0, slot.z, b - a, width, T) }
             end
-            pieces << [x0, stop] if stop > x0
-            pieces.select { |a, b| b - a > 0.01 }.map { |a, b| Member.new(role, size, len, a, 0.0, slot.z, b - a, width, T) }
-          else # plates: start at slot x
+          else
             [Member.new(role, size, len, slot.x, 0.0, slot.z, len, width, T)]
           end
+        end
+      end
+
+      PLATE_IDS = %w[BP TP:1].freeze
+      STOCK_MAX = 192.0 # longest plate stock (16')
+
+      def plate?(slot_or_id)
+        PLATE_IDS.include?(slot_or_id.respond_to?(:id) ? slot_or_id.id : slot_or_id)
+      end
+
+      # Plate entry built from its pieces (laid from the layout end). 'full' once it reaches the wall end.
+      def plate_entry(wall, role, pieces)
+        total = pieces.sum { |pc| pc['length'].to_f }
+        { 'role' => role, 'size' => pieces.first['size'], 'length' => total, 'pieces' => pieces,
+          'full' => total >= wall['length'].to_f - 1.0 / 16 || wall['length'].to_f <= STOCK_MAX }
+      end
+
+      # Splice positions, measured from the layout end (the arrow).
+      def plate_splices(entry)
+        pcs = entry['pieces'] || []
+        return [] if pcs.size < 2
+        acc = 0.0
+        pcs[0..-2].map { |pc| acc += pc['length'].to_f }
+      end
+
+      # [a, b] spans along the wall (from the start) for each plate piece.
+      def plate_spans(wall, entry)
+        len = wall['length'].to_f
+        pcs = entry['pieces'] || [{ 'length' => entry['length'] }]
+        acc = 0.0
+        pcs.map do |pc|
+          a = acc
+          acc += pc['length'].to_f
+          from_end?(wall) ? [len - acc, len - a] : [a, acc]
         end
       end
 

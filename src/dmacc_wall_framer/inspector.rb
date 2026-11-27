@@ -165,6 +165,27 @@ module DMACC
                               'Check the wall legend on the plans for the stud spacing, then redo the stud layout (right-click the wall).', nil)
         end
 
+        # Plate splices have to land centered on a stud
+        Framing::PLATE_IDS.each do |pid|
+          e = entries[pid] or next
+          splices = Framing.plate_splices(e)
+          next if splices.empty?
+          sp = (wall['oc'] || wall['spacing']).to_f
+          studs = slots.select { |sl| sl.kind == :vertical }.map { |sl| Framing.layout_dist(wall, sl.x + Framing::T / 2.0) }
+          splices.each do |d|
+            k = (d / sp).round
+            on_layout = sp.positive? && (d - k * sp).abs <= 1.0 / 8
+            on_stud = studs.any? { |c| (c - d).abs <= 1.0 / 8 }
+            next if on_layout || on_stud
+            name = pid == 'BP' ? 'Bottom plate' : 'Top plate'
+            near = [k, 1].max * sp
+            issues << Issue.new("SPLICE:#{pid}", "#{name} splice", ['splice'],
+                                "#{name} splice at #{Framing.fmt_len(d)} from the arrow end isn't centered on a stud.",
+                                "A plate splice has to land in the middle of a stud so both pieces bear on it. Layout marks fall every #{sp == sp.round ? sp.round : sp}\" from the arrow end - a full 16' piece always lands on one.",
+                                { 'role' => name, 'size' => '', 'length' => near, 'length_text' => "splice at #{Framing.fmt_len(near)} from the arrow end" })
+          end
+        end
+
         # Header height marks on the kings vs the head height on the plans
         (wall['hdr_marks'] || {}).each do |mk, z|
           o = (wall['openings'] || []).find { |x| x['mark'] == mk } or next
@@ -232,7 +253,7 @@ module DMACC
 
       def slot_done?(slot, entry)
         return false unless complete?(entry)
-        return entry['full'] != false if slot.id == 'TP:2' # every double plate piece on
+        return entry['full'] != false if slot.id == 'TP:2' || Framing.plate?(slot) # every piece on
         return (entry['pieces'] || []).size >= slot.plies.to_i if slot.id.start_with?('HDR:') && entry['pieces']
         true
       end

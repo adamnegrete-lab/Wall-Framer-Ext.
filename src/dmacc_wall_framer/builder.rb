@@ -731,6 +731,14 @@ module DMACC
           pcs += [pc]
           p['entries'][slot_id] = { 'role' => slot.expected['role'], 'size' => pcs.first['size'],
                                     'length' => pcs.first['length'], 'pieces' => pcs }
+        elsif Framing.plate?(slot)
+          # plates over 16' are spliced: pieces go on from the layout end until the plate reaches the wall end
+          pcs = e && e['pieces'] ? e['pieces'] : []
+          return 'That plate is already on - pull it with the Demo tool.' if e && e['full'] != false && Inspector.complete?(e)
+          return "Longest plate stock is 16' - cut it shorter and splice." if pc['length'] > Framing::STOCK_MAX + 1e-6
+          left = p['length'].to_f - pcs.sum { |x| x['length'].to_f }
+          return "That's longer than what's left of the plate (#{Framing.fmt_len(left)})." if pcs.any? && pc['length'] > left + 1.0 / 16
+          p['entries'][slot_id] = Framing.plate_entry(p, slot.expected['role'], pcs + [pc])
         else
           return 'Something is already nailed in there - pull it with the Demo tool.' if Inspector.complete?(e)
           p['entries'][slot_id] = { 'role' => slot.expected['role'], 'size' => pc['size'],
@@ -752,6 +760,8 @@ module DMACC
         rest = pcs[0..-2]
         if rest.empty?
           p['entries'].delete(slot_id)
+        elsif Framing.plate?(slot_id)
+          p['entries'][slot_id] = Framing.plate_entry(p, e['role'], rest).merge('full' => false)
         else
           p['entries'][slot_id] = e.merge('pieces' => rest, 'size' => rest.first['size'], 'length' => rest.first['length'])
         end

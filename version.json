@@ -1,5 +1,5 @@
 {
-  "version": "0.13.0",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.0.rbz",
-  "notes": "Framing panel redone with tabs (This Wall, Job Notes, Building, Material, Instructor). RFI answers go to Job Notes - no pop-up mid-click. Header tables are remembered on the instructor's computer."
+  "version": "0.13.1",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.1.rbz",
+  "notes": "Plates over 16' are spliced: first piece from the arrow end, then the rest. Inspection checks the splice lands centered on a stud."
 }

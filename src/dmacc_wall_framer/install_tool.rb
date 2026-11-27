@@ -168,6 +168,7 @@ module DMACC
         e = (params['entries'] || {})[slot.id]
         return false unless Inspector.complete?(e)
         return (e['pieces'] || []).size >= slot.plies.to_i if slot.id.start_with?('HDR:')
+        return e['full'] != false if Framing.plate?(slot)
         true
       end
 
