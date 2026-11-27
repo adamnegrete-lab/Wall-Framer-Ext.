@@ -79,7 +79,7 @@ module DMACC
 
       # Header choices for pop-ups and the openings form.
       def header_choices
-        [HDR_PICK, HDR_FLAT] + SIZES.reject { |x| x == '2x4' } + [HDR_RFI]
+        [HDR_PICK, HDR_FLAT] + SIZES.reject { |x| x == '2x4' } # sizes come off the plans or the header table
       end
 
       def header_from_choice(c)

@@ -203,6 +203,7 @@ module DMACC
             'stage' => Builder.stage(p), 'next' => next_hint(p),
             'on_table' => Builder.on_table?(group),
             'ready_to_build' => ready_to_build?(p),
+            'header_tables' => Project.sfpa_tables,
             'start_side' => Framing.from_end?(p) ? 'right' : 'left',
             'goto_row' => @goto_row
           }

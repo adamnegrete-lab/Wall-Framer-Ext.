@@ -55,6 +55,11 @@
   .cl.short .st { color: var(--err); }
   .cl.flag { outline: 2px solid var(--err); outline-offset: -2px; }
   .cl .fixed { color: var(--mute); font-size: 12px; }
+  .ht { border-collapse: collapse; margin: 6px 0 12px; font-size: 12px; }
+  .ht th, .ht td { border: 1px solid var(--line); padding: 3px 6px; text-align: center; white-space: nowrap; }
+  .ht th { background: var(--bg); }
+  .ht caption { text-align: left; font-weight: 600; padding: 4px 0; }
+  #hdr-panel { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin: 6px 0; overflow-x: auto; }
   .nexthint { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; margin: 0 0 8px; }
 </style>
 </head>
@@ -76,10 +81,11 @@
     <div id="op-errors"></div>
     <div class="row op head"><div>Mark</div><div>Type</div><div>Position</div><div>RO width</div><div>RO height</div><div>Head height (windows)</div><div>Header (plans)</div><div>Plies</div><div></div></div>
     <div id="ops"></div>
-    <p><button class="btn" id="add-op">+ Add opening</button>
+    <p><button class="btn" id="add-op">+ Add opening</button> <button class="btn" id="hdr-btn">Header table</button>
       &nbsp; Position measured to:
       <select id="pos-mode" style="width:auto"><option value="center">center of the RO</option><option value="left">near edge of the RO (closest to the arrow)</option></select></p>
-    <p class="note">Lengths: type feet and inches like 7' 8-5/8" or inches like 92 5/8. Header not on the plans or in the general notes? Pick "Not on plans - submit RFI". Don't assume.</p>
+    <div id="hdr-panel" style="display:none"></div>
+    <p class="note">Lengths: type feet and inches like 7' 8-5/8" or inches like 92 5/8. Header size: take it off the plans. Not called out there? Look it up in the Header table.</p>
     <p id="op-inline" style="display:none"><button class="btn primary" id="save-ops2">Save openings</button>
       <button class="btn" id="no-ops2">No openings in this wall</button> <span class="note" id="op-saved"></span></p>
   </section>
@@ -357,6 +363,37 @@ function rowsUpdate(u) {
 $('stand').addEventListener('click', function () { call('build_stand', {}); });
 $('save-ops2').addEventListener('click', function () { $('save-ops').click(); });
 $('no-ops2').addEventListener('click', function () { $('no-ops').click(); });
+
+// ---------- header table ----------
+function ftIn(i) { var f = Math.floor(i / 12), r = i - f * 12; return r ? f + "' " + r + '"' : f + "'"; }
+function headerTable(key, title) {
+  var t = S.header_tables;
+  var tb = el('table', { 'class': 'ht' });
+  tb.appendChild(el('caption', { text: title }));
+  var hr = el('tr', {}, [el('th', { scope: 'col', text: 'Opening width (up to)' })]);
+  t.spans.forEach(function (sp) { hr.appendChild(el('th', { scope: 'col', text: sp + "' building" })); });
+  tb.appendChild(hr);
+  t.openings.forEach(function (w, i) {
+    var tr = el('tr', {}, [el('th', { scope: 'row', text: ftIn(w) })]);
+    t[key][i].forEach(function (c) { tr.appendChild(el('td', { text: c.size ? '(' + c.plies + ') ' + c.size : 'Glulam ' + c.glulam })); });
+    tb.appendChild(tr);
+  });
+  return tb;
+}
+$('hdr-btn').addEventListener('click', function () {
+  var p = $('hdr-panel');
+  if (p.style.display !== 'none') { p.style.display = 'none'; $('hdr-btn').textContent = 'Header table'; return; }
+  p.innerHTML = '';
+  if (!S.header_tables) { p.appendChild(el('p', { 'class': 'note', text: 'No header table is set up - ask your instructor.' })); }
+  else {
+    p.appendChild(el('p', { 'class': 'note', text: 'Use this only when the plans or general notes don\'t call out the header. ' +
+      'Building width = the width the roof (and floor) span across. Read across from the opening width to the building width; (2) 2x10 means two 2x10s. ' +
+      'Source: ' + S.header_tables.source + '.' }));
+    p.appendChild(headerTable('roof', 'Header supports the roof only'));
+    p.appendChild(headerTable('roof_floor', 'Header supports the roof and one floor'));
+  }
+  p.style.display = ''; $('hdr-btn').textContent = 'Hide header table';
+});
 
 // ---------- inspection results ----------
 function showInspection(res) {

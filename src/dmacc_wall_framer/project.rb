@@ -232,9 +232,19 @@ module DMACC
         def sfpa_tables
           t = data['sfpa']
           return t if t
-          lt = local_sfpa or return nil
-          update { |d| d['sfpa'] = lt }
-          lt
+          lt = local_sfpa
+          if lt
+            update { |d| d['sfpa'] = lt }
+            return lt
+          end
+          builtin_sfpa
+        end
+
+        # The header tables that ship with Wall Framer (SFPA Southern Pine, No. 2).
+        def builtin_sfpa
+          @builtin_sfpa ||= JSON.parse(File.read(File.join(__dir__, 'data', 'sfpa_headers.json')))
+        rescue StandardError
+          nil
         end
 
         # Answer one RFI now (instructor) or every RFI whose time is up.

@@ -1,0 +1,453 @@
+{
+ "source": "Southern Forest Products Association, Southern Pine Headers & Beams (2013), No. 2 grade, 30 psf ground snow load",
+ "grade": "No. 2",
+ "spans": [
+  16,
+  20,
+  24,
+  28,
+  32,
+  36,
+  40
+ ],
+ "openings": [
+  48,
+  72,
+  96,
+  108,
+  120,
+  144,
+  192,
+  216
+ ],
+ "roof": [
+  [
+   {
+    "plies": 1,
+    "size": "2x6"
+   },
+   {
+    "plies": 1,
+    "size": "2x8"
+   },
+   {
+    "plies": 1,
+    "size": "2x8"
+   },
+   {
+    "plies": 1,
+    "size": "2x8"
+   },
+   {
+    "plies": 1,
+    "size": "2x10"
+   },
+   {
+    "plies": 1,
+    "size": "2x10"
+   },
+   {
+    "plies": 1,
+    "size": "2x10"
+   }
+  ],
+  [
+   {
+    "plies": 1,
+    "size": "2x10"
+   },
+   {
+    "plies": 1,
+    "size": "2x12"
+   },
+   {
+    "plies": 1,
+    "size": "2x12"
+   },
+   {
+    "plies": 2,
+    "size": "2x10"
+   },
+   {
+    "plies": 2,
+    "size": "2x10"
+   },
+   {
+    "plies": 2,
+    "size": "2x10"
+   },
+   {
+    "plies": 2,
+    "size": "2x12"
+   }
+  ],
+  [
+   {
+    "plies": 2,
+    "size": "2x10"
+   },
+   {
+    "plies": 2,
+    "size": "2x10"
+   },
+   {
+    "plies": 2,
+    "size": "2x12"
+   },
+   {
+    "plies": 2,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x10"
+   },
+   {
+    "plies": 3,
+    "size": "2x10"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   }
+  ],
+  [
+   {
+    "plies": 2,
+    "size": "2x12"
+   },
+   {
+    "plies": 2,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x10"
+   },
+   {
+    "plies": 3,
+    "size": "2x10"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   }
+  ],
+  [
+   {
+    "plies": 2,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x10"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   }
+  ],
+  [
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/2"
+   },
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   }
+  ],
+  [
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-7/8"
+   },
+   {
+    "glulam": "3-1/2 x 11-7/8"
+   },
+   {
+    "glulam": "3-1/2 x 14"
+   },
+   {
+    "glulam": "3-1/2 x 14"
+   }
+  ],
+  [
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-7/8"
+   },
+   {
+    "glulam": "3-1/2 x 14"
+   },
+   {
+    "glulam": "3-1/2 x 14"
+   },
+   {
+    "glulam": "3-1/2 x 14"
+   },
+   {
+    "glulam": "3-1/2 x 14"
+   },
+   {
+    "glulam": "3-1/2 x 16"
+   }
+  ]
+ ],
+ "roof_floor": [
+  [
+   {
+    "plies": 1,
+    "size": "2x10"
+   },
+   {
+    "plies": 1,
+    "size": "2x10"
+   },
+   {
+    "plies": 1,
+    "size": "2x12"
+   },
+   {
+    "plies": 1,
+    "size": "2x12"
+   },
+   {
+    "plies": 2,
+    "size": "2x10"
+   },
+   {
+    "plies": 2,
+    "size": "2x10"
+   },
+   {
+    "plies": 2,
+    "size": "2x10"
+   }
+  ],
+  [
+   {
+    "plies": 2,
+    "size": "2x10"
+   },
+   {
+    "plies": 2,
+    "size": "2x12"
+   },
+   {
+    "plies": 2,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x10"
+   },
+   {
+    "plies": 3,
+    "size": "2x10"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   }
+  ],
+  [
+   {
+    "plies": 3,
+    "size": "2x10"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   }
+  ],
+  [
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "plies": 3,
+    "size": "2x12"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   }
+  ],
+  [
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 9-1/2"
+   },
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   }
+  ],
+  [
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-1/4"
+   },
+   {
+    "glulam": "3-1/2 x 11-7/8"
+   },
+   {
+    "glulam": "3-1/2 x 14"
+   },
+   {
+    "glulam": "3-1/2 x 14"
+   },
+   {
+    "glulam": "5-1/2 x 11-1/4"
+   }
+  ],
+  [
+   {
+    "glulam": "3-1/2 x 14"
+   },
+   {
+    "glulam": "3-1/2 x 16"
+   },
+   {
+    "glulam": "3-1/2 x 16"
+   },
+   {
+    "glulam": "3-1/2 x 16"
+   },
+   {
+    "glulam": "5-1/2 x 14"
+   },
+   {
+    "glulam": "5-1/2 x 16"
+   },
+   {
+    "glulam": "5-1/2 x 16"
+   }
+  ],
+  [
+   {
+    "glulam": "3-1/2 x 16"
+   },
+   {
+    "glulam": "3-1/2 x 16"
+   },
+   {
+    "glulam": "3-1/2 x 18"
+   },
+   {
+    "glulam": "5-1/2 x 16"
+   },
+   {
+    "glulam": "5-1/2 x 16"
+   },
+   {
+    "glulam": "5-1/2 x 18"
+   },
+   {
+    "glulam": "5-1/2 x 18"
+   }
+  ]
+ ],
+ "tables": {
+  "roof": "Table 1 - roof loads only",
+  "roof_floor": "Table 7 - roof, wall and floor loads"
+ }
+}
