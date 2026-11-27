@@ -252,7 +252,7 @@ module DMACC
       def tape_tool
         Builder.close_edits
         Sketchup.send_action('selectMeasureTool:')
-        Sketchup.status_text = 'Tape Measure: when you're done measuring, click Continue framing in the Frame Wall form (or the Frame tool).'
+        Sketchup.status_text = 'Tape Measure: when you are done measuring, click Continue framing in the Frame Wall form (or the Frame tool).'
       end
 
       def demo_tool
