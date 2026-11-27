@@ -1,5 +1,5 @@
 {
-  "version": "0.13.1",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.1.rbz",
-  "notes": "Plates over 16' are spliced: first piece from the arrow end, then the rest. Inspection checks the splice lands centered on a stud."
+  "version": "0.13.2",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.2.rbz",
+  "notes": "Double top plate runs over 16': students pick the splice. A splice off a stud, or within 24 inches of the top plate splice, gets a pop-up hint."
 }

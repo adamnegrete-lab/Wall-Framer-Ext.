@@ -214,6 +214,10 @@ module DMACC
         model.start_operation('Double Top Plate', true)
         err = Builder.place_dtp(g, lx)
         model.commit_operation
+        if err == 'SPLICE'
+          err = nil
+          return unless dtp_splice_popup(g, lx)
+        end
         id = Builder.params_of(g)['id']
         if err
           UI.beep
@@ -227,6 +231,38 @@ module DMACC
         end
         Dialogs.refresh_yard
         Dialogs.refresh_frame
+      end
+
+      # A double plate run longer than 16': the student picks the splice. A bad splice gets a hint.
+      def dtp_splice_popup(g, lx)
+        sp = Builder.dtp_preview(g, lx) or return false
+        p = Builder.params_of(g)
+        len = sp['b'] - sp['a']
+        title = "Splice the double plate - #{p['id']}"
+        loop do
+          cuts = []
+          while len - cuts.sum > Framing::STOCK_MAX + 1e-6
+            left = len - cuts.sum
+            prompt = cuts.empty? ? "This run is #{Framing.fmt_len(len)} - longest stock is 16'. First piece, from the arrow end" :
+                                   "Next piece (#{Framing.fmt_len(left)} of the run left)"
+            res = UI.inputbox([prompt], [@last_dtp_cut || ''], [''], title)
+            return false unless res
+            c = Framing.parse_len(res[0])
+            unless c && c.positive? && c < left
+              UI.messagebox("Couldn't use \"#{res[0]}\" - try 16' or 12' 8\".")
+              next
+            end
+            @last_dtp_cut = res[0]
+            cuts << c
+          end
+          cuts << len - cuts.sum
+          m = Sketchup.active_model
+          m.start_operation('Double Top Plate', true)
+          err = Builder.place_dtp(g, lx, cuts)
+          m.commit_operation
+          return true unless err
+          UI.messagebox("Not there:\n\n#{err}\n\nTry the splice again.")
+        end
       end
 
       def plates_in?(p)

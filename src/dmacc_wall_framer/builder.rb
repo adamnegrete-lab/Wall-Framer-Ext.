@@ -532,14 +532,14 @@ module DMACC
             rec = seq[sp['i']]
             len = sp['b'] - sp['a']
             next if rec['len'] && (rec['len'].to_f - len).abs < 0.01
-            pcs = err = nil
-            Yard.change do |y|
-              (rec['pieces'] || []).each { |pc| YardLogic.return_piece(y, pc) }
-              y['hand'] = nil
-              pcs, err = YardLogic.pull_for(y, ws.map { |w| params_of(w) }.find { |p| p['id'] == rec['wall'] }['stud'], len, kerf)
-              pcs.each { |pc| YardLogic.install(y, pc['id']) } unless err
+            wp = ws.map { |w| params_of(w) }.find { |p| p['id'] == rec['wall'] }
+            if rec['cuts']
+              last = len - rec['cuts'][0..-2].sum
+              rec['cuts'] = last.positive? && last <= Framing::STOCK_MAX ? rec['cuts'][0..-2] + [last] : nil
             end
-            rec['pieces'] = err ? [] : pcs.map { |pc| { 'id' => pc['id'], 'size' => pc['size'], 'length' => pc['length'] } }
+            Yard.change { |y| (rec['pieces'] || []).each { |pc| YardLogic.return_piece(y, pc) }; y['hand'] = nil }
+            pcs, = supply_cuts(wp, rec['cuts'], len)
+            rec['pieces'] = pcs
             rec['len'] = len
           end
         end
@@ -556,7 +556,8 @@ module DMACC
             (p['entries'] ||= {})['TP:2'] = {
               'role' => 'Double Top Plate', 'size' => p['stud'], 'auto' => true,
               'length' => list.sum { |sp| sp['b'] - sp['a'] },
-              'segs' => list.map { |sp| [sp['a'], sp['b']] }, 'nums' => list.map { |sp| sp['n'] },
+              'segs' => list.flat_map { |sp| split_at(sp, dtp_splice_xs(p, sp, seq[sp['i']]['cuts'])) },
+              'nums' => list.map { |sp| sp['n'] },
               'full' => Joints.free(sh, joints, spans).empty?,
               'pieces' => list.flat_map { |sp| seq[sp['i']]['pieces'] || [] }
             }
@@ -564,6 +565,11 @@ module DMACC
           set_params(w, p)
           rebuild(w)
         end
+      end
+
+      def split_at(sp, xs)
+        pts = ([sp['a']] + xs.sort + [sp['b']])
+        pts.each_cons(2).map { |a, b| [a.round(4), b.round(4)] }
       end
 
       # The piece a click at local x would set on this wall, or nil.
@@ -592,25 +598,96 @@ module DMACC
       end
 
       # Set the double plate piece under local x. Returns error or nil.
-      def place_dtp(g, x = nil)
+      # Stud centers along a wall (from the wall start): its layout + every stud in it.
+      def stud_centers(p)
+        sp = (p['oc'] || p['spacing']).to_f
+        len = p['length'].to_f
+        lay = []
+        k = 0
+        while sp.positive? && k * sp <= len + 0.01
+          lay << Framing.layout_dist(p, k * sp) # layout_dist flips back to wall-x
+          k += 1
+        end
+        lay + work_slots(p).select { |s| s.kind == :vertical }.map { |s| s.x + Framing::T / 2.0 }
+      end
+
+      # Wall-x of each splice in a double plate piece, laid from the arrow-end side of [a, b].
+      def dtp_splice_xs(p, sp, cuts)
+        return [] if cuts.nil? || cuts.size < 2
+        acc = 0.0
+        cuts[0..-2].map do |c|
+          acc += c.to_f
+          Framing.from_end?(p) ? sp['b'] - acc : sp['a'] + acc
+        end
+      end
+
+      # nil = good; otherwise the hint for the student.
+      def dtp_splice_problem(g, sp, cuts)
+        p = params_of(g)
+        return "Every piece has to come out of 16' stock." if cuts.any? { |c| c.to_f > Framing::STOCK_MAX + 1e-6 || c.to_f <= 0 }
+        studs = stud_centers(p)
+        tp = Framing.plate_splices((p['entries'] || {})['TP:1'] || {}).map { |d| Framing.layout_dist(p, d) }
+        dtp_splice_xs(p, sp, cuts).each do |x|
+          unless studs.any? { |c| (c - x).abs <= 1.0 / 8 }
+            near = studs.min_by { |c| (c - x).abs }
+            return "That splice lands at #{Framing.fmt_len(Framing.layout_dist(p, x))} from the arrow end - it isn't centered on a stud. " \
+                   "Double plate splices land in the middle of a stud, same as the plates#{near ? " (closest stud center: #{Framing.fmt_len(Framing.layout_dist(p, near))})" : ''}."
+          end
+          close = tp.find { |t| (t - x).abs < 24 - 1e-6 }
+          next unless close
+          gap = (close - x).abs
+          where = gap < 1.0 / 8 ? 'lands right over the top plate splice below it' : "is only #{Framing.fmt_len(gap)} from the top plate splice below it"
+          return "That splice #{where}. " \
+                 "Double plate splices have to be at least 24\" from any top plate splice so the two plates lock together."
+        end
+        nil
+      end
+
+      # Pieces of stock for a double plate run (cuts = piece lengths from the arrow-end side).
+      def supply_cuts(p, cuts, len)
+        kerf = (Project.settings['kerf'] || YardLogic::KERF).to_f
+        pieces = []
+        err = nil
+        Yard.change do |y|
+          y['hand'] = nil
+          if cuts && cuts.size > 1
+            cuts.each do |c|
+              pc, err = YardLogic.supply(y, p['stud'], c.to_f, kerf)
+              break if err
+              YardLogic.install(y, pc['id'])
+              pieces << pc
+            end
+          else
+            pieces, err = YardLogic.pull_for(y, p['stud'], len, kerf)
+            pieces.each { |pc| YardLogic.install(y, pc['id']) } unless err
+          end
+        end
+        [pieces.map { |pc| { 'id' => pc['id'], 'size' => pc['size'], 'length' => pc['length'] } }, err]
+      end
+
+      # Set the double plate piece under local x. Runs over 16' need cuts (piece lengths). Returns error or nil.
+      def place_dtp(g, x = nil, cuts = nil)
         p = params_of(g)
         return "#{p['id']} has a single top plate." unless p['top_plates'].to_i == 2
         blockers = dtp_blockers(p['level'])
         return "Stand every wall first. Still framing: #{blockers.join(', ')}." unless blockers.empty?
         x = (x || p['length'].to_f / 2).to_f
         sp = dtp_preview(g, x)
-        return "That part of #{p['id']} already has its double plate - right-click a piece to take it off." unless sp
+        return "That part of #{p['id']} already has its double plate - click a piece to take it off." unless sp
         len = sp['b'] - sp['a']
-        kerf = (Project.settings['kerf'] || YardLogic::KERF).to_f
-        pieces = err = nil
-        Yard.change do |y|
-          y['hand'] = nil
-          pieces, err = YardLogic.pull_for(y, p['stud'], len, kerf)
-          pieces.each { |pc| YardLogic.install(y, pc['id']) } unless err
+        if len > Framing::STOCK_MAX + 1e-6
+          return 'SPLICE' unless cuts && cuts.size > 1
+          cuts = cuts.map(&:to_f)
+          return "The pieces add up to #{Framing.fmt_len(cuts.sum)} - this run is #{Framing.fmt_len(len)}." if (cuts.sum - len).abs > 1.0 / 16
+          why = dtp_splice_problem(g, sp, cuts)
+          return why if why
+        else
+          cuts = nil
         end
+        pieces, err = supply_cuts(p, cuts, len)
         return err if err
-        rec = { 'wall' => p['id'], 'x' => x, 'len' => len,
-                'pieces' => pieces.map { |pc| { 'id' => pc['id'], 'size' => pc['size'], 'length' => pc['length'] } } }
+        rec = { 'wall' => p['id'], 'x' => x, 'len' => len, 'pieces' => pieces }
+        rec['cuts'] = cuts if cuts
         seq = dtp_seq
         Project.update { |d| d['dtp_seq'] = seq + [rec]; d['dtp_order'] = ((d['dtp_order'] || []) - [p['id']]) + [p['id']] }
         recompute_dtps(p['level'])

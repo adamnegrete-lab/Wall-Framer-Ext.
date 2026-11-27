@@ -49,4 +49,37 @@ g2 = Builder.create_wall(Geom::Point3d.new(0, 100, 0), Geom::Point3d.new(144, 10
 s2 = Builder.work_slots(Builder.params_of(g2)).find { |s| s.id == 'BP' }
 Builder.nail_supplied(g2, s2, '2x6', 100.0)
 chk(Builder.params_of(g2)['entries']['BP']['full'], 'walls 16\' and under: one piece, no splice')
+
+# ---- double top plate splices: students pick them; bad ones get a hint ----
+p = Builder.params_of(g)
+p['entries'] = Builder.work_slots(p).reject { |x| %w[BP TP:1 TP:2].include?(x.id) }.to_h do |x|
+  [x.id, x.expected.merge('pieces' => Array.new(x.plies || 1) { { 'size' => x.expected['size'], 'length' => x.expected['length'] } })]
+end.merge('BP' => Framing.plate_entry(p, 'Bottom Plate', [{ 'size' => '2x6', 'length' => 192.0 }, { 'size' => '2x6', 'length' => 48.0 }]),
+          'TP:1' => Framing.plate_entry(p, 'Top Plate', [{ 'size' => '2x6', 'length' => 192.0 }, { 'size' => '2x6', 'length' => 48.0 }]))
+p['openings_done'] = true; p['oc'] = 16.0
+p['marks'] = Framing.auto_marks(p, 16.0)
+Builder.set_params(g, p)
+p = Builder.params_of(g)
+p['entries'] = p['entries'].merge(Builder.work_slots(p).select(&:common).to_h { |x| [x.id, x.expected.merge('pieces' => [{ 'size' => '2x6', 'length' => x.expected['length'] }])] })
+Builder.set_params(g, p); Builder.rebuild(g)
+q = Builder.params_of(g2); q['openings_done'] = true; q['oc'] = 16.0; q['marks'] = Framing.auto_marks(q, 16.0); Builder.set_params(g2, q)
+q = Builder.params_of(g2)
+q['entries'] = Builder.work_slots(q).reject { |x| x.id == 'TP:2' }.to_h { |x| [x.id, x.expected.merge('pieces' => [{ 'size' => '2x6', 'length' => x.expected['length'] }])] }
+Builder.set_params(g2, q)
+chk(Builder.dtp_blockers('Level 1').empty? || puts("   blockers #{Builder.dtp_blockers('Level 1')}"), 'wall framed - double plates open')
+tool.set_mode(:dtp)
+V.ray = [Geom::Point3d.new(100, 2.75, 500).transform(g.transformation), Geom::Vector3d.new(0, 0, -1).transform(g.transformation)]
+tool.onMouseMove(0, 0, 0, V)
+msgs = UI.messages.size
+answers.clear
+answers << ["16'"]       # splice right over the top plate splice -> hint
+answers << ["15' 1\""]   # not on a stud -> hint
+answers << ["12'"]       # on layout, 48" from the top plate splice -> good
+tool.onLButtonDown(0, 0, 0, V)
+hints = UI.messages[msgs..]
+chk(hints.size == 2 && hints[0].include?('24'), "too close to the top plate splice -> hint: #{hints[0].to_s.lines[2].to_s.strip}")
+chk(hints[1].to_s.include?("isn't centered on a stud"), "off a stud -> hint: #{hints[1].to_s.lines[2].to_s.strip[0, 80]}")
+e = Builder.params_of(g)['entries']['TP:2']
+chk(e && e['segs'].size == 2 && (e['segs'][0][1] - 144).abs < 0.01, "double plate on, spliced at 12' (joint shows): #{e && e['segs']}")
+chk(prompts.any? { |x| x.include?("longest stock is 16'") }, 'pop-up says the run needs a splice')
 puts($f ? 'SOME FAILED' : 'ALL PASSED')
