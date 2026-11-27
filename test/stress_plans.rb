@@ -179,6 +179,7 @@ class Student
   end
 end
 
+require_relative 'cut_student'
 S = Student.new
 UI.answers[:inputbox] = ->(*a) { S.answer(*a) }
 UI.answers[:msg] = ->(m) { S.message(m) }
@@ -231,14 +232,16 @@ def frame_wall(g)
       finding("#{id}: another wall is still on the table: #{others.map { |w| Builder.params_of(w)['id'] }}") unless others.empty?
     end
   end
-  400.times do
+  fd = CutStudent.frame_dialog
+  finding("#{id}: the Frame Wall form didn't open on the first click") unless fd&.visible?
+  12.times do
     p = Builder.params_of(g)
     st = Builder.stage(p)
     case st
     when 'framed'
-      if Builder.on_table?(g) # the 'Stand it up?' question was answered No, or skipped
-        finding("#{id}: framed but still on the table after the stand-up question")
-        TOOL.stand_up(g)
+      if Builder.on_table?(g)
+        fd = CutStudent.frame_dialog
+        fd.fire('stand_up')
       end
       t = g.transformation
       h = Builder.home(g)
@@ -249,11 +252,9 @@ def frame_wall(g)
       finding("#{id}: stuck at corners")
       return false
     when 'openings'
-      # the Openings form opens when the plates are done; clicking the wall opens it too
-      click(g, 30, 50)
-      fd = UI::HtmlDialog.all.reverse.find { |d| d.instance_variable_get(:@cbs)&.key?('save_openings') }
+      fd = CutStudent.frame_dialog
       unless fd
-        finding("#{id}: clicking a wall at the openings step didn't open the Openings form")
+        finding("#{id}: no Openings form at the openings step")
         return false
       end
       fd.fire('ready')
@@ -271,32 +272,20 @@ def frame_wall(g)
       end
       rfis = S.ops.select { |o| o[6] == :rfi }
       S.ops = []
+      # rows for the other openings go in while the RFI is out (any order)
+      CutStudent.fill(g)
       rfis.each { |o| rfi_flow(g, o) }
-    when 'commons'
-      if !p['oc']
-        click(g, 4, 50)
-        click(g, p['length'].to_f - 4, 50) unless Builder.params_of(g)['oc']
-        finding("#{id}: corner clicks didn't lay out the studs") unless Builder.params_of(g)['oc']
-        return false unless Builder.params_of(g)['oc']
-      else
-        tee = Builder.work_slots(p).find { |s| s.kind == :backing && !Inspector.complete?((p['entries'] || {})[s.id]) }
-        unless tee
-          finding("#{id}: stuck in studs - nothing left to click: #{Builder.next_slots(p).map(&:label)}")
-          return false
-        end
-        click_slot(g, tee) or (TOOL.tee_popup(g, tee, p))
-      end
     else
-      s = Builder.next_slots(p).first
-      unless s
-        open = Builder.work_slots(p).reject { |x| Inspector.slot_done?(x, (p['entries'] || {})[x.id]) }
-        finding("#{id}: stuck at #{st} - nothing clickable. Open: #{open.map { |x| "#{x.label} (#{Builder.gate_reason(p, x)})" }.first(3)}")
+      CutStudent.fill(g, order: [:reverse, :forward].sample)
+      p = Builder.params_of(g)
+      if Builder.stage(p) == st && st != 'framed'
+        stuck = CutList.rows(p).reject { |r| %w[placed none].include?(r['state']) }
+        finding("#{id}: stuck at #{st} with the cut list filled: #{stuck.map { |r| "#{r['label']} [#{r['state']}] #{r['note']}" }.first(3)}")
         return false
       end
-      click_slot(g, s) or TOOL.piece_popup(g, s, Builder.params_of(g))
     end
   end
-  finding("#{id}: didn't finish in 400 steps (stage #{Builder.stage(Builder.params_of(g))})")
+  finding("#{id}: didn't finish (stage #{Builder.stage(Builder.params_of(g))})")
   false
 end
 

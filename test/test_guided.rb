@@ -12,50 +12,25 @@ Dialogs.activate_tool; tool = Dialogs.instance_variable_get(:@tool); tool.activa
 chk(tool.is_a?(GuidedTool), 'guided tool active')
 face = ->(x, z) { V.ray = [Geom::Point3d.new(x, -60, z).transform(g.transformation), Geom::Vector3d.new(0, 1, 0).transform(g.transformation)] }
 down = ->(x) { V.ray = [Geom::Point3d.new(x, 2.75, 60).transform(g.transformation), Geom::Vector3d.new(0, 0, -1).transform(g.transformation)] }
-popups = []
-# the "student": reads the pop-up title, measures, answers correctly
-UI.answers[:inputbox] = lambda do |prompts, vals, lists, title|
-  popups << title
-  if title.start_with?('Lay out an opening')
-    @seen_cl ||= vals[0]
-    @prompts1 ||= prompts
-    @cur = @ops.shift; next [vals[0], @cur[1], @cur[2]]
-  end
-  if title.include?(') - Lay out an opening')
-    @detail_prompts << prompts
-    next @cur[2] == 'Window' ? @cur[3..6] + ['3'] : [@cur[3], @cur[4], @cur[6], '3']
-  end
-  if title.start_with?('Mark the kings')
-    o = Builder.params_of(g)['openings'].find { |op| title.end_with?(op['mark']) }
-    next [Framing.fmt_len(o['height'])]
-  end
-  next @studs.shift if title.start_with?('Corner') || title.start_with?('Stud layout')
-  p = Builder.params_of(g)
-  s = Builder.work_slots(p).find { |sl| title.start_with?(sl.label + ' -') }
-  raise "no slot for #{title}" unless s
-  x = s.expected
-  @tips << prompts.join(' ') if x['role'] == 'Jack Stud'
-  next [Framing.fmt_len(x['length'])] if x['role'] == 'Header' # size + plies come from the opening
-  [x['size'], Framing.fmt_len(x['length'])]
-end
-@ops = [["4'", 'W1', 'Window', '36', '48', '82 1/2', '2x8'], ["11'", 'D1', 'Door', '38', '82 1/2', '', '2x10']]
-@marks = %w[16 80 96 160 176]
-@detail_prompts = []
-@tips = []
-UI.answers[:msg] = ->(m) { m.include?('Another opening') ? (@ops.empty? ? IDNO : IDYES) : IDYES }
+require_relative 'cut_student'
+UI.answers[:inputbox] = ->(*a) { raise "pop-up asked: #{a.last}" }
+UI.answers[:msg] = ->(m) { raise "message box: #{m[0, 80]}" }
 click = ->(s) { x0, z0, x1, z1 = Framing.slot_box(s); face.((x0 + x1) / 2, (z0 + z1) / 2); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
-# try a king first (no openings yet -> nothing there), then plates
+# clicking the bottom plate opens the cut list at its row
 bp = Builder.work_slots(Builder.params_of(g)).find { |s| s.id == 'BP' }; click.(bp)
-tp = Builder.work_slots(Builder.params_of(g)).find { |s| s.id == 'TP:1' }; click.(tp)
-chk(Builder.stage(Builder.params_of(g)) == 'openings', 'plates set by pop-up -> openings stage')
-fd = UI::HtmlDialog.all.last
-chk(fd.instance_variable_get(:@cbs)&.key?('save_openings') && Sketchup.status_text.include?('Openings form'), "plates done -> the Openings form opens on its own (#{Sketchup.status_text[0, 60]})")
+fd = CutStudent.frame_dialog
+chk(fd, 'clicking a piece opens the Frame Wall form')
+fd.fire('ready')
+chk(fd.last('load')['goto_row'] == 'plate:BP', 'at the bottom plate row')
+CutStudent.fill(g, only: %w[plate:BP plate:TP:1])
+chk(Builder.stage(Builder.params_of(g)) == 'openings', 'plates from the cut list -> openings stage')
+chk(Sketchup.status_text.include?('Openings tab'), "told the openings are next (#{Sketchup.status_text[0, 60]})")
 # typing a tape reading in the Frame tool no longer drops pencil marks
 face.(10.0, 0.8); tool.onMouseMove(0,0,0,V); tool.onUserText("4'", V)
-chk(Builder.params_of(g)['pencil'].to_a.empty? && Sketchup.status_text.include?('Openings form'), 'no tape/pencil click-through - points to the form')
+chk(Builder.params_of(g)['pencil'].to_a.empty?, 'no tape/pencil click-through')
 fd.fire('ready')
 st = fd.last('load')
-chk(st['guided'] && st['openings'].empty?, 'form opens on the Openings tab with no rows')
+chk(st['guided'] && st['openings'].empty?, 'form has no opening rows yet')
 # a missing plies pick is caught
 fd.fire('save_openings', { 'pos_mode' => 'center', 'openings' => [
   { 'mark' => 'W1', 'type' => 'Window', 'x_text' => "4'", 'width_text' => '36', 'height_text' => '48', 'sill_text' => '82 1/2', 'header' => '2x8', 'plies' => '--' }] })
@@ -66,57 +41,34 @@ fd.fire('save_openings', { 'pos_mode' => 'center', 'openings' => [
 p = Builder.params_of(g)
 chk(p['openings'].map { |o| [o['mark'], o['x']] } == [['W1', 30.0], ['D1', 113.0]], "openings from the form (centers from the arrow end): #{p['openings'].map { |o| [o['mark'], o['x']] }}")
 chk(Builder.stage(p) == 'units', 'saving the form -> units stage')
-chk(UI.messages.last.to_s.include?('frame each opening'), 'told to frame the openings next')
-# build units: always click whatever is next (student follows the green marks)
-n = 0
-next_click = lambda do
-  p = Builder.params_of(g)
-  s = Builder.next_slots(p).first
-  click.(s)
-end
-while Builder.stage(Builder.params_of(g)) == 'units' && n < 60
-  next_click.call; n += 1
-end
-chk(popups.none? { |t| t.start_with?('Mark the kings') }, 'no header-mark step - students work out jack length')
-chk(@tips.none? { |t| t.include?('header mark') }, "jack pop-up gives no answer: #{@tips.first}")
-chk(popups.none? { |t| t =~ /header/i && t.include?('Lumber') }, 'header pop-up never asks the size again')
-chk(Builder.stage(Builder.params_of(g)) == 'commons', "opening units built with #{n} pop-ups")
-chk(UI.messages.any? { |m| m.include?('choose its corner assembly') }, 'prompted for corner assemblies + spacing')
-# commons: mark stud centers, then click each
-@studs = [[GuidedTool::CORNERS['single']], [GuidedTool::CORNERS['single']], ['16']]
-face.(5.0, 50.0); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
-face.(187.0, 50.0); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
-n2 = (Builder.params_of(g)['marks'] || []).size
-chk(n2 == 5, "corners + 16\" O.C. -> #{n2} commons laid out and nailed")
+chk(Sketchup.status_text.include?('cut list'), 'told to fill in the cut list next')
+ops = CutList.rows(p).select { |r| r['key'] =~ /\A(king|jack|header|sill):/ }.map { |r| r['key'] }
+CutStudent.fill(g, only: ops)
+chk(Builder.stage(Builder.params_of(g)) == 'commons', 'opening units built from the cut list')
+hdr = Builder.params_of(g)['entries']['HDR:W1']
+chk(hdr && hdr['pieces'].size == 3, 'header plies come from the plans')
+CutStudent.fill(g, only: %w[corner:start corner:end oc common])
 p = Builder.params_of(g)
-chk(Builder.stage(p) == 'cripples', "studs in -> cripples and header blocks next (#{n2} commons + end studs)")
-chk(UI.messages.last.include?('cripples and header blocks'), 'told cripples come next, on the layout')
+chk((p['marks'] || []).size == 5, "corners + 16\" O.C. -> #{(p['marks'] || []).size} commons laid out and nailed")
+chk(Builder.stage(p) == 'cripples', 'studs in -> cripples and header blocks next')
 cr = Builder.work_slots(p).select { |sl| sl.phase == 'cripples' }
 on16 = ->(sl) { ((sl.x + 0.75) % 16).abs < 0.01 }
 oc_ok = cr.select { |sl| sl.label.include?('header block') }.all?(&on16) && cr.count(&on16) >= 6
 chk(oc_ok, "cripples land on the 16\" layout: #{cr.map { |sl| [sl.label, sl.x + 0.75] }}")
-n3 = 0
-while Builder.stage(Builder.params_of(g)) == 'cripples' && n3 < 30
-  next_click.call; n3 += 1
-end
+CutStudent.fill(g)
 p = Builder.params_of(g)
-chk(Builder.stage(p) == 'framed', "framed after #{n3} cripples / header blocks")
-chk(UI.messages.last.include?('is framed'), 'told the wall is framed')
+chk(Builder.stage(p) == 'framed', 'framed from the cut list')
+chk(Sketchup.status_text.include?('is framed'), 'told the wall is framed')
 r = Inspector.inspect_wall(p, p['entries'], student_layout: true, table: Project.header_table)
 chk(r['correct'] == r['total'] - 1, "inspection: #{r['summary']} (only the double plate is left)")
-hdr = popups.find { |t| t.start_with?('W1 header') }; chk(hdr, "header pop-up asked: #{hdr}")
 puts "   #{Yard.stats}"
 chk(Yard.stats['boards_pulled'] < 30, 'offcuts reused automatically')
-# a wrong length: pull a jack, re-enter wrong
-jack = Builder.work_slots(p).find { |s| s.expected['role'] == 'Jack Stud' }
-x0, z0, x1, z1 = Framing.slot_box(jack); face.((x0+x1)/2, (z0+z1)/2); tool.onMouseMove(0,0,0,V)
-menu = Struct.new(:items) { def add_item(t, &b) = items << [t, b] }.new([]); tool.getMenu(menu); menu.items.first[1].call
-UI.answers[:inputbox] = ->(*_) { ['2x6', '80'] }
-tool.onLButtonDown(0,0,0,V)
+# a wrong length: change the jack row
+fd.fire('set_row', { 'key' => 'jack:W1', 'v' => '80', 'size' => '2x6' })
 p = Builder.params_of(g)
 r = Inspector.inspect_wall(p, p['entries'], student_layout: true, table: Project.header_table)
 chk(r['issues'].any? { |i| i.message.include?('too short') }, 'wrong jack length caught by inspection')
-puts "   pop-ups: #{popups.size} (sample: #{popups.first(4).join(' | ')})"
+chk(UI.messages.empty?, "no message boxes: #{UI.messages.first(2)}")
 puts($f ? 'SOME FAILED' : 'ALL PASSED')
 # trade convention: window RO 36 x 48 with 82-1/2 head -> sill at 34-1/2
 w1 = Builder.params_of(g)['openings'].find { |o| o['mark'] == 'W1' }

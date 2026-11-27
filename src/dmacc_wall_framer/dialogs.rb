@@ -48,9 +48,10 @@ module DMACC
 
         # ---------------- framing form ----------------
 
-        def open_frame(wall, center: nil)
+        def open_frame(wall, center: nil, row: nil)
           @frame_wall = Builder.params_of(wall)['id']
           @prefill = center
+          @goto_row = row
           if @frame&.visible?
             send_frame
             @frame.bring_to_front
@@ -70,7 +71,41 @@ module DMACC
           d.add_action_callback('go_frame') { |_c, _a| open_yard; Sketchup.active_model.select_tool(InstallTool.new) }
           d.add_action_callback('shop') { |_c, _a| (g = frame_group) && open_shop(g) }
           d.add_action_callback('zoom') { |_c, a| zoom(JSON.parse(a)['slot']) }
+          d.add_action_callback('set_row') { |_c, a| set_row(JSON.parse(a)) }
+          d.add_action_callback('stand_up') do |_c, _a|
+            g = frame_group or next
+            activate_tool
+            @tool.stand_up(g) if @tool.respond_to?(:stand_up) && Builder.on_table?(g)
+            send_frame
+          end
           d.show
+        end
+
+        # One cut-list row typed in: store it, nail what can go in, send the table back.
+        def set_row(data)
+          g = frame_group or return
+          before = Builder.stage(Builder.params_of(g))
+          err = nil
+          operation('Cut List') { err = CutList.set(g, data['key'], data['v'], data['size']) }
+          g = frame_group or return
+          p = Builder.params_of(g)
+          js(@frame, 'rowsUpdate', 'rows' => CutList.rows(p), 'key' => data['key'], 'err' => err,
+                                   'stage' => Builder.stage(p), 'on_table' => Builder.on_table?(g), 'next' => next_hint(p))
+          @tool.announce(g, before) if @tool.respond_to?(:announce)
+          refresh_yard
+          Sketchup.active_model.active_view.invalidate
+        end
+
+        def next_hint(p)
+          case Builder.stage(p)
+          when 'corners' then 'Set the plan corners first (Corners tool).'
+          when 'plates' then 'Next: cut the bottom and top plates.'
+          when 'openings' then 'Next: enter the openings from the plans (tab 1), or No openings in this wall.'
+          when 'units' then 'Next: frame each opening - kings, jacks, header, sill.'
+          when 'commons' then 'Next: corners, stud spacing and common studs.'
+          when 'cripples' then 'Next: cripples under the sills and header blocks - they land on your layout.'
+          else Builder.on_table?(Builder.find_wall(p['id'])) ? 'Framed. Stand it up when you are ready (inspect first if you want).' : 'Framed.'
+          end
         end
 
         def frame_group
@@ -134,7 +169,13 @@ module DMACC
             'roles' => Framing::ROLES, 'sizes' => Framing::SIZES,
             'header_choices' => Framing.header_choices,
             'inspection' => p['last_inspection'],
-            'allow_apply' => s['feedback'] == 'fix'
+            'allow_apply' => s['feedback'] == 'fix',
+            'cutlist' => CutList.rows(p),
+            'corner_opts' => CutList::CORNERS, 'backing_opts' => CutList::BACKING, 'oc_opts' => CutList::OCS,
+            'stud_sizes' => %w[2x4 2x6],
+            'stage' => Builder.stage(p), 'next' => next_hint(p),
+            'on_table' => Builder.on_table?(group),
+            'goto_row' => @goto_row
           }
         end
 
@@ -142,6 +183,7 @@ module DMACC
           g = frame_group or return
           js(@frame, 'load', frame_state(g))
           @prefill = nil
+          @goto_row = nil
         end
 
         def save_openings(data)
@@ -210,12 +252,14 @@ module DMACC
           unsent = ops.find { |op| op['header'] == Framing::RFI && !op['rfi'] }
           held = ops.select { |op| op['header'] == Framing::RFI }.map { |op| op['mark'] }
           if guided
-            @frame.close
+            operation('Cut List') { CutList.apply(g) } # rows already typed for these openings go in
             Sketchup.status_text = if ops.empty? then "#{p['id']}: no openings - on to the studs."
                                    elsif held.any? then "#{p['id']}: openings saved. #{held.join(', ')} on hold for an RFI - frame the others."
-                                   else "#{p['id']}: openings saved. Frame them: kings, jacks, header, sill."
+                                   else "#{p['id']}: openings saved. Fill in the cut list: kings, jacks, header, sill."
                                    end
             @tool.announce(g, before) if @tool.respond_to?(:announce) && Builder.find_wall(p['id'])
+            send_frame
+            js(@frame, 'afterOps', nil)
           else
             send_frame
             js(@frame, 'afterOps', nil)
@@ -331,9 +375,10 @@ module DMACC
               Builder.set_params(gg, pp)
             end
             d.close
-            UI.messagebox("RFI ##{n} submitted. #{mark} is on hold until the answer comes back - " \
-                          'keep working on other openings and walls in the meantime.')
+            msg = "RFI ##{n} submitted. #{mark} is on hold until the answer comes back - keep working on other openings and walls."
+            Sketchup.status_text = msg
             refresh_frame
+            js(@frame, 'setStatus', msg) if @frame&.visible?
             refresh_yard
           end
           d.add_action_callback('cancel') { |_c, _a| d.close }

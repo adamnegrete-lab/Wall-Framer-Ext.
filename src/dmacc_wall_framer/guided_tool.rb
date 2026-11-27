@@ -130,6 +130,14 @@ module DMACC
           Sketchup.status_text = "#{@focus}: enter its openings from the plans in the Openings form (or click 'No openings in this wall')."
           return
         end
+        if @mode != :dtp && table_mode? && (row = click_row)
+          g, key = row
+          Dialogs.open_frame(g, row: key)
+          Sketchup.status_text = "#{Builder.params_of(g)['id']}: type it in the cut list - it goes in as soon as you press Enter."
+          update_ui
+          view.invalidate
+          return
+        end
         if @mode == :dtp
           click_dtp
         elsif @corner
@@ -171,6 +179,25 @@ module DMACC
         view.invalidate
       end
 
+      # Pieces are cut and placed from the Frame Wall form's cut list.
+      def table_mode?
+        Project.settings['guided']
+      end
+
+      # [group, cut-list row] for what's under the cursor
+      def click_row
+        if @corner
+          g, _p, end_name = @corner
+          return [g, "corner:#{end_name}"]
+        end
+        return nil unless @target
+        g, slot, p = @target
+        op = slot.opening && p['openings'].find { |o| o['mark'] == slot.opening }
+        return nil if op && (op['rfi_new'] || (op['header'] == Framing::RFI && !op['rfi'])) # RFI flow first
+        key = CutList.row_for(p, slot.id)
+        key && [g, key]
+      end
+
       def pencil(g, x)
         model = Sketchup.active_model
         model.start_operation('Pencil Mark', true)
@@ -199,7 +226,7 @@ module DMACC
         focus(id)
         Sketchup.status_text = "#{id} is on the framing table, lying flat with the bottom plate toward you. Frame it, then stand it up." +
                                (back.empty? ? '' : " (#{back.join(', ')} went back on its line, unfinished.)")
-        Dialogs.open_frame(g) if Builder.stage(Builder.params_of(g)) == 'openings'
+        Dialogs.open_frame(g) if table_mode? || Builder.stage(Builder.params_of(g)) == 'openings'
         Dialogs.refresh_yard
         Sketchup.active_model.active_view.invalidate
       end
@@ -420,9 +447,8 @@ module DMACC
 
       # The RFI answer, read when the student goes back to the opening.
       def read_rfi_answer(g, op)
-        r = (Project.data['rfis'] || []).find { |x| x['n'] == op['rfi_new'] }
-        UI.messagebox("RFI ##{op['rfi_new']} - #{op['mark']}\n\nQ: #{r && r['question']}\n\nA: #{r && r['answer']}\n\n" \
-                      "Next: update #{op['mark']} with the answer in the Openings form. (It's saved in Job Notes if you need it again.)")
+        # the answer shows on the opening's row in the Openings tab (and stays in Job Notes)
+        Sketchup.status_text = "RFI ##{op['rfi_new']} is answered - update #{op['mark']} in the Openings tab with the header from the answer."
         Dialogs.open_frame(g)
         Dialogs.refresh_yard
       end
@@ -614,40 +640,27 @@ module DMACC
       end
 
       # One message when a wall moves to its next stage.
+      # Stage changes show in the status bar and the Frame Wall form - no pop-ups.
       def announce(g, before)
         p = Builder.params_of(g)
         after = Builder.stage(p)
         return if after == before
         id = p['id']
-        case after
-        when 'openings'
-          # Plates are on: the Openings form opens for this wall
-          Sketchup.status_text = "Plates are set on #{id}. Next: enter its doors and windows from the plans in the Openings form " \
-                                 "(positions from the arrow end). No openings? Click 'No openings in this wall'."
-          Dialogs.open_frame(g)
-        when 'units'
-          UI.messagebox("Openings are laid out on #{id}.\n\nNext: frame each opening - kings, jacks, the header and the sill. " \
-                        'Cripples and header blocks come later - they go on your stud layout.')
-        when 'commons'
-          tees = (p['tee_need'] || []).map { |t| t['id'] }
-          UI.messagebox("#{id}: next, the studs. Click each end of the wall and choose its corner assembly - a single stud if this " \
-                        'wall butts into another, an L-corner post if another wall butts into this end. Then pick the stud spacing ' \
-                        "(16, 19.2 or 24\" O.C.) - the layout pulls from the arrow end and the studs nail themselves." +
-                        (tees.empty? ? '' : "\n\n#{tees.join(', ')} tee#{tees.size == 1 ? 's' : ''} into this wall - click each tee spot " \
-                                             'to put in partition backing (ladder blocking or a 3-stud channel).'))
-        when 'cripples'
-          UI.messagebox("#{id}: studs are in.\n\nNext: cripples and header blocks. They land on your stud layout - " \
-                        'click each spot above the headers and under the sills.')
-        when 'framed'
-          if Builder.on_table?(g)
-            r = UI.messagebox("#{id} is framed.\n\nStand it up and set it on its line now? (Inspect it first if you want - " \
-                              "it's easier to fix while it's flat. You can stand it up later from the Framing Panel.)", MB_YESNO)
-            stand_up(g) if r == IDYES
-          else
-            UI.messagebox("#{id} is framed.\n\nRequest an inspection from the Framing panel. Double top plates go on " \
-                          'once every wall on this level is framed and standing.')
-          end
-        end
+        Sketchup.status_text = case after
+                               when 'openings' then "Plates are set on #{id}. Next: enter its doors and windows from the plans (Openings tab)."
+                               when 'units' then "#{id}: openings are in. Fill in the cut list for each opening - kings, jacks, header, sill."
+                               when 'commons' then "#{id}: next, the corners, the stud spacing and the common stud length in the cut list."
+                               when 'cripples' then "#{id}: studs are in. Cripples and header blocks land on your layout - fill in their lengths."
+                               when 'framed'
+                                 if Builder.on_table?(g)
+                                   "#{id} is framed. Inspect it while it's flat if you want, then click Stand it up in the Frame Wall form."
+                                 else
+                                   "#{id} is framed. Request an inspection from the Framing panel."
+                                 end
+                               else Sketchup.status_text
+                               end
+        Dialogs.open_frame(g) if after == 'openings'
+        Dialogs.refresh_frame
         Dialogs.refresh_yard
       end
 

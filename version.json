@@ -1,5 +1,5 @@
 {
-  "version": "0.15.0",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.15.0.rbz",
-  "notes": "Framing table: click a wall to frame it flat beside the house (top-down view, Tape works), then Stand it up onto its line. Mistakes the inspector catches are logged for grading (first-time-right in the grade report)."
+  "version": "0.16.0",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.16.0.rbz",
+  "notes": "Cut list: plates, openings, corners and studs are typed into one table in the Frame Wall form (any order). Pieces go in as rows are filled; rows that have to wait say why. No more piece, corner or spacing pop-ups."
 }

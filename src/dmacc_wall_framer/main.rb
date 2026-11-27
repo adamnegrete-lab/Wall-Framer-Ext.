@@ -1,7 +1,7 @@
 require 'sketchup.rb'
 require 'json'
 
-%w[version updater views framing corners joints inspector takeoff answer_key yard_logic shop project builder yard_view tools corner_tool install_tool guided_tool demo_tool dialogs].each do |f|
+%w[version updater views framing corners joints inspector takeoff answer_key yard_logic shop project builder cutlist yard_view tools corner_tool install_tool guided_tool demo_tool dialogs].each do |f|
   Sketchup.require(File.join(__dir__, f))
 end
 

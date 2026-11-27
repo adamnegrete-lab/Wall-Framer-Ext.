@@ -56,7 +56,7 @@ p = Builder.params_of(g)
 p['entries'] = Builder.work_slots(p).select { |x| x.phase == 'plates' }.to_h { |x| [x.id, x.expected.merge('pieces' => [{ 'size' => x.expected['size'], 'length' => x.expected['length'] }])] }
 Builder.set_params(g, p)
 tool.onMouseMove(0, 0, 0, V); tool.onLButtonDown(0, 0, 0, V)
-chk(UI.messages.last.to_s.include?("A: W1: use"), "click the opening -> reads the answer: #{UI.messages.last.to_s.lines[4]&.strip}")
+chk(Sketchup.status_text.include?("RFI #1 is answered"), "click the opening -> told the answer is in: #{Sketchup.status_text[0, 60]}")
 fd = UI::HtmlDialog.all.last
 fd.fire('ready')
 row = fd.last('load')['openings'].find { |r| r['mark'] == 'W1' }

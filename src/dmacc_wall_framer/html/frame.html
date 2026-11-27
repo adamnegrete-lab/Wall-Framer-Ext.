@@ -44,6 +44,18 @@
   .errlist a { color: var(--err); cursor: pointer; text-decoration: underline; }
   .note { color: var(--mute); font-size: 12px; margin: 4px 0; }
   .progress { color: var(--mute); }
+  .cl { grid-template-columns: 1fr 86px 190px 1.1fr; }
+  .cl .lab { font-weight: 500; }
+  .cl .st { font-size: 12px; color: var(--mute); }
+  .cl.placed .st { color: var(--ok); }
+  .cl.placed .st::before { content: '\2714  '; }
+  .cl.waiting .st { color: #7a5a00; }
+  .cl.waiting .st::before { content: '\23F3  '; }
+  .cl.error { background: var(--errbg); } .cl.error .st { color: var(--err); }
+  .cl.short .st { color: var(--err); }
+  .cl.flag { outline: 2px solid var(--err); outline-offset: -2px; }
+  .cl .fixed { color: var(--mute); font-size: 12px; }
+  .nexthint { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; margin: 0 0 8px; }
 </style>
 </head>
 <body>
@@ -53,6 +65,7 @@
 </header>
 <nav>
   <button data-tab="openings" class="on">1. Openings</button>
+  <button data-tab="cutlist">2. Cut list</button>
   <button data-tab="framing">2. Frame the wall</button>
 </nav>
 <main>
@@ -66,6 +79,17 @@
       &nbsp; Position measured to:
       <select id="pos-mode" style="width:auto"><option value="center">center of the RO</option><option value="left">near edge of the RO (closest to the arrow)</option></select></p>
     <p class="note">Lengths: type feet and inches like 7' 8-5/8" or inches like 92 5/8. Header not on the plans or in the general notes? Pick "Not on plans - submit RFI". Don't assume.</p>
+  </section>
+
+  <section class="tab" id="tab-cutlist">
+    <div class="nexthint" id="next"></div>
+    <div id="cl-summary"></div>
+    <p class="note">Fill in each row from the plans and your own measurements - any order, and come back to change one any time.
+      A row goes into the wall as soon as you press Enter (or pick from a list) - if it has to wait for something, it says what.
+      Keep the Tape Measure handy: measure the openings on the table for cripples, headers and header blocks.
+      Lengths: 92 5/8 or 7' 8-5/8". Plates over 16' get spliced - type each piece from the arrow end with a comma between.</p>
+    <div class="row cl head"><div>Piece</div><div>Lumber</div><div>Cut length / choice</div><div>Status</div></div>
+    <div id="cl"></div>
   </section>
 
   <section class="tab" id="tab-framing">
@@ -82,6 +106,7 @@
   <button class="btn primary" id="save-ops">Save openings</button>
   <button class="btn" id="shop" style="display:none">Shop drawing</button>
   <button class="btn" id="save-entries" style="display:none">Go frame it (yard + tools)</button>
+  <button class="btn" id="stand" style="display:none">Stand it up</button>
   <button class="btn primary" id="inspect" style="display:none">Request inspection</button>
 </div>
 
@@ -126,7 +151,8 @@ function showTab(t) {
   $('no-ops').style.display = t === 'openings' && !document.querySelectorAll('#ops .row').length ? '' : 'none';
   $('save-entries').style.display = t === 'framing' ? '' : 'none';
   $('shop').style.display = t === 'framing' ? '' : 'none';
-  $('inspect').style.display = t === 'framing' ? '' : 'none';
+  $('inspect').style.display = t === 'framing' || t === 'cutlist' ? '' : 'none';
+  $('stand').style.display = t === 'cutlist' && S && S.on_table ? '' : 'none';
 }
 
 // ---------- openings ----------
@@ -217,6 +243,108 @@ $('save-entries').addEventListener('click', function () { call('go_frame', {}); 
 $('shop').addEventListener('click', function () { call('shop', {}); });
 $('inspect').addEventListener('click', function () { call('inspect', {}); });
 
+// ---------- cut list (guided) ----------
+var clKeys = '', lastStage = null;
+function clInput(r) {
+  var f;
+  function send() {
+    var sz = r.size ? document.querySelector('[data-size="' + r.key + '"]').value : null;
+    call('set_row', { key: r.key, v: f.value, size: sz });
+  }
+  if (r.input === 'corner' || r.input === 'backing' || r.input === 'oc') {
+    var opts = r.input === 'corner' ? S.corner_opts : r.input === 'backing' ? S.backing_opts : null;
+    f = el('select', { 'data-key': r.key, 'aria-label': r.label });
+    f.appendChild(el('option', { value: '', text: '-- pick --' }));
+    if (opts) { for (var k in opts) { var o = el('option', { value: k, text: opts[k] }); if (k === r.value) o.selected = true; f.appendChild(o); } }
+    else S.oc_opts.forEach(function (v) { var o = el('option', { value: v, text: v + '" O.C.' }); if (v === r.value) o.selected = true; f.appendChild(o); });
+    f.addEventListener('change', send);
+  } else {
+    f = el('input', { 'data-key': r.key, value: r.value || '', 'aria-label': r.label + ' cut length',
+                      placeholder: r.input === 'lens' ? "16', 4'" : 'length' });
+    f.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); f.dataset.sent = f.value; send(); } });
+    f.addEventListener('change', function () { if (f.dataset.sent !== f.value) { f.dataset.sent = f.value; send(); } });
+  }
+  return f;
+}
+function clRow(r) {
+  var row = el('div', { 'class': 'row cl ' + r.state, id: 'cl-' + r.key, 'data-key': r.key });
+  row.appendChild(el('div', { 'class': 'lab', text: r.label }));
+  var lum = el('div');
+  if (r.size) {
+    var sz = options(el('select', { 'data-size': r.key, 'aria-label': r.label + ' lumber' }), S.stud_sizes, r.size_val);
+    sz.addEventListener('change', function () { var f = row.querySelector('[data-key]'); if (f.value) call('set_row', { key: r.key, v: f.value, size: sz.value }); });
+    lum.appendChild(sz);
+  } else if (r.fixed) lum.appendChild(el('span', { 'class': 'fixed', text: r.fixed }));
+  row.appendChild(lum);
+  row.appendChild(el('div', {}, [clInput(r)]));
+  row.appendChild(el('div', { 'class': 'st', text: r.note || '' }));
+  return row;
+}
+function renderCut(rows) {
+  var keys = rows.map(function (r) { return r.key + '|' + r.label; }).join(',');
+  if (keys !== clKeys) {
+    clKeys = keys;
+    var box = $('cl'); box.innerHTML = '';
+    var sec = null;
+    rows.forEach(function (r) {
+      if (r.section !== sec) { sec = r.section; box.appendChild(el('h2', { text: sec })); }
+      box.appendChild(clRow(r));
+    });
+  } else {
+    rows.forEach(function (r) {
+      var row = $('cl-' + r.key); if (!row) return;
+      row.className = 'row cl ' + r.state;
+      row.querySelector('.st').textContent = r.note || '';
+      var f = row.querySelector('[data-key]');
+      if (f !== document.activeElement) f.value = r.value || '';
+      var sz = row.querySelector('[data-size]'); if (sz && sz !== document.activeElement) sz.value = r.size_val;
+    });
+  }
+  flagRows();
+}
+function flagRows() {
+  var res = S && S.inspection, bad = {};
+  if (res && res.issues) res.issues.forEach(function (i) { bad[i.slot_id] = i; });
+  (S.cutlist || []).forEach(function (r) {
+    var row = $('cl-' + r.key); if (!row) return;
+    var hit = (r.slots || []).filter(function (id) { return bad[id]; });
+    row.classList.toggle('flag', hit.length > 0);
+    if (hit.length) row.title = hit.map(function (id) { return bad[id].label + ': ' + bad[id].message; }).join('\n');
+    else row.removeAttribute('title');
+  });
+  var box = $('cl-summary'); box.innerHTML = '';
+  if (res) {
+    var passed = res.correct === res.total;
+    var sm = el('div', { 'class': 'summary ' + (passed ? 'ok' : 'err') }, [el('strong', { text: res.summary })]);
+    if (res.issues && res.issues.length) {
+      var ul = el('ul', { 'class': 'errlist' });
+      res.issues.forEach(function (i) { ul.appendChild(el('li', { text: i.label + ' - ' + i.message + (i.hint ? ' (' + i.hint + ')' : '') })); });
+      sm.appendChild(ul);
+    }
+    box.appendChild(sm);
+  }
+}
+function gotoRow(key) {
+  showTab('cutlist');
+  var row = $('cl-' + key); if (!row) return;
+  document.querySelectorAll('#cl .row').forEach(function (x) { x.classList.toggle('hl', x === row); });
+  row.scrollIntoView({ block: 'center' });
+  var f = row.querySelector('[data-key]'); if (f) setTimeout(function () { f.focus(); if (f.select) f.select(); }, 30);
+}
+function rowsUpdate(u) {
+  S.cutlist = u.rows; S.on_table = u.on_table; S.stage = u.stage; lastStage = u.stage;
+  renderCut(u.rows);
+  $('next').textContent = u.next;
+  var r = u.rows.filter(function (x) { return x.key === u.key; })[0];
+  if (u.err) {
+    var row = $('cl-' + u.key);
+    if (row) { row.className = 'row cl error'; row.querySelector('.st').textContent = u.err; }
+    $('status').textContent = u.err;
+  } else $('status').textContent = r ? r.label + ': ' + (r.note || 'saved.') : 'Saved.';
+  showTab(document.querySelector('nav button.on').dataset.tab);
+}
+$('stand').addEventListener('click', function () { call('stand_up', {}); });
+
 // ---------- inspection results ----------
 function showInspection(res) {
   issuesBySlot = {};
@@ -277,7 +405,17 @@ function load(state) {
   state.openings.forEach(function (o) { $('ops').appendChild(opRow(o)); });
   $('pos-mode').value = state.pos_mode || 'center';
   document.querySelector('nav button[data-tab=framing]').style.display = state.guided ? 'none' : '';
-  if (state.guided) showTab('openings');
+  document.querySelector('nav button[data-tab=cutlist]').style.display = state.guided ? '' : 'none';
+  if (state.guided) {
+    clKeys = '';
+    renderCut(state.cutlist);
+    $('next').textContent = state.next;
+    // the tab follows the job: openings when it's time for them, the cut list otherwise
+    if (state.stage !== lastStage) showTab(state.stage === 'openings' ? 'openings' : 'cutlist');
+    lastStage = state.stage;
+    // an answered RFI waits on the Openings tab
+    if (state.openings.some(function (o) { return o.rfi_note; })) showTab('openings');
+  } else if (document.querySelector('nav button.on').dataset.tab === 'cutlist') showTab('framing');
   if (state.prefill) {
     var r = opRow({ x_text: state.prefill.x_text });
     $('ops').appendChild(r);
@@ -288,6 +426,7 @@ function load(state) {
   showInspection(state.inspection);
   showTab(document.querySelector('nav button.on').dataset.tab);
   $('status').textContent = state.saved_note || '';
+  if (state.guided && state.goto_row) gotoRow(state.goto_row);
 }
 function openingErrors(errs) {
   var b = $('op-errors');
@@ -312,7 +451,7 @@ function entryErrors(errs) {
   $('status').textContent = n ? n + " length(s) couldn't be read - see red rows." : 'Members installed.';
 }
 function setStatus(t) { $('status').textContent = t; }
-function afterOps() { showTab('framing'); }
+function afterOps() { showTab(S && S.guided ? 'cutlist' : 'framing'); }
 
 window.onload = function () { sketchup.ready(''); };
 </script>

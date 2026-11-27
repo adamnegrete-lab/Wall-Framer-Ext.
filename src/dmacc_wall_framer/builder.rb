@@ -435,6 +435,7 @@ module DMACC
         p['marks'] = []
         p.delete('corners')
         p.delete('oc')
+        (p['cutlist'] || {}).reject! { |k, _| k =~ /\A(corner:|oc\z|common\z|under:|above:|tee:)/ }
         p['last_inspection'] = nil
         p['flags'] = []
         set_params(group, p)
@@ -449,11 +450,14 @@ module DMACC
       def set_layout_from(group, from_end)
         p = params_of(group)
         return if Framing.from_end?(p) == from_end
+        keep = p['cutlist'] && JSON.parse(JSON.generate(p['cutlist']))
         reset_commons(group) if p['oc'] || (p['marks'] || []).any?
         p = params_of(group)
         if from_end then p['layout_from'] = 'end' else p.delete('layout_from') end
+        p['cutlist'] = keep if keep
         set_params(group, p)
         rebuild(group)
+        CutList.apply(group) if keep && keep.any?
       end
 
       # ---------- guided stages ----------
@@ -902,6 +906,7 @@ module DMACC
         pcs = e['pieces'] || [{ 'size' => e['size'], 'length' => e['length'] }]
         piece = pcs.last
         rest = pcs[0..-2]
+        CutList.forget(p, slot_id)
         if rest.empty?
           p['entries'].delete(slot_id)
         elsif Framing.plate?(slot_id)
@@ -920,6 +925,7 @@ module DMACC
         p = params_of(group)
         e = (p['entries'] || {})[slot_id]
         return [] unless e
+        CutList.forget(p, slot_id)
         p['entries'].delete(slot_id)
         touch(p, slot_id)
         set_params(group, p)

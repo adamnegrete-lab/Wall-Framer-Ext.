@@ -32,15 +32,13 @@ chk(Joints.find(Builder.level_walls('Level 1').map { |w| Builder.wall_shape(w) }
 chk(Sketchup.status_text.include?('framing table'), "told where it went: #{Sketchup.status_text[0, 70]}")
 yd.fire('ready'); Dialogs.focus_wall('W-101'); yd.fire('ready')
 chk(yd.last('load')['wall']['on_table'], 'panel knows it is on the table')
-# framing on the table: plates by clicking (the pick goes through the flat wall)
-UI.answers[:inputbox] = lambda do |_pr, _v, _l, title|
-  sl = Builder.work_slots(Builder.params_of(s)).find { |x| title.start_with?("#{x.label} -") }
-  next nil unless sl
-  [sl.expected['size'], Framing.fmt_len(sl.expected['length'])]
-end
+# framing on the table: clicking the plate opens the cut list there; the row nails it
 bp = Builder.work_slots(Builder.params_of(s)).find { |x| x.id == 'BP' }
 x0, z0, x1, z1 = Framing.slot_box(bp); click.(s, (x0 + x1) / 2, (z0 + z1) / 2)
-chk(Builder.params_of(s)['entries'] && Builder.params_of(s)['entries']['BP'], 'clicking the bottom plate on the table nails it')
+fd = UI::HtmlDialog.all.reverse.find { |d| d.file.to_s.end_with?('frame.html') }
+chk(fd.last('load')['goto_row'] == 'plate:BP' && fd.last('load')['on_table'], 'clicking the plate on the table opens its cut-list row')
+fd.fire('set_row', { 'key' => 'plate:BP', 'v' => Framing.fmt_len(bp.expected['length']), 'size' => bp.expected['size'] })
+chk(Builder.params_of(s)['entries'] && Builder.params_of(s)['entries']['BP'], 'typing the bottom plate row nails it')
 # double plates wait while a wall is on the table
 p = Builder.params_of(s)
 chk(Builder.dtp_blockers('Level 1').any? { |b| b.include?('W-101') }, 'double plates wait for the wall to be framed and standing')

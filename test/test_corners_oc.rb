@@ -30,18 +30,26 @@ prep.(s_w); prep.(e_w)
 Dialogs.focus_wall('W-101'); Dialogs.activate_tool; tool = Dialogs.tool
 chk(Builder.stage(Builder.params_of(s_w)) == 'commons', 'S at the stud step')
 face = ->(w, x, z) { V.ray = [Geom::Point3d.new(x, -60, z).transform(w.transformation), Geom::Vector3d.new(0, 1, 0).transform(w.transformation)] }
-answers = []
-UI.answers[:inputbox] = ->(prompts, vals, lists, title) { answers << title; @next.shift }
-# student picks L at start, SINGLE at end (wrong), 16 O.C.
-@next = [[CORNERS = GuidedTool::CORNERS['L']], [GuidedTool::CORNERS['single']], ['16']]
+UI.answers[:inputbox] = ->(*a) { raise "pop-up asked: #{a.last}" }
+sl = Framing.stud_length(Builder.params_of(s_w))
+studs = lambda do |w, st, en, oc|
+  Dialogs.open_frame(w); fd = UI::HtmlDialog.all.reverse.find { |d| d.file.to_s.end_with?('frame.html') }; fd.fire('ready')
+  { 'corner:start' => st, 'corner:end' => en, 'oc' => oc, 'common' => Framing.fmt_len(sl) }.each do |k, v|
+    fd.fire('set_row', { 'key' => k, 'v' => v, 'size' => '2x6' })
+  end
+  fd
+end
+# hovering the wall end targets its corner; clicking opens the cut list at that row
 face.(s_w, 6, 50); tool.onMouseMove(0,0,0,V)
 chk(tool.instance_variable_get(:@corner)&.last == 'start', 'hovering near the wall start targets its corner')
 tool.onLButtonDown(0,0,0,V)
-face.(s_w, 186, 50); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
+fd = UI::HtmlDialog.all.reverse.find { |d| d.file.to_s.end_with?('frame.html') }; fd.fire('ready')
+chk(fd.last('load')['goto_row'] == 'corner:start', 'clicking the corner opens its cut-list row')
+# student picks L at start, SINGLE at end (wrong), 16 O.C.
+studs.(s_w, 'L', 'single', '16')
 p = Builder.params_of(s_w)
-chk(answers.last.start_with?('Stud layout'), 'after both corners -> O.C. pop-up')
 chk(p['oc'] == 16.0 && p['marks'].size == 11, "commons laid out automatically (#{p['marks'].size} at 16\" O.C.)")
-chk(Builder.stage(p) == 'framed', 'commons + end studs + corner post nailed automatically')
+chk(Builder.stage(p) == 'framed', 'commons + end studs + corner post nailed from the common row')
 post = s_w.entities.find { |e| e.is_a?(Sketchup::ComponentInstance) && e.get_attribute(Builder::DICT, 'role') == 'Corner Stud' }
 chk(post, 'L-corner post drawn at the wall start')
 Dialogs.inspect_group(s_w)
@@ -51,23 +59,17 @@ puts '   why: ' + ins['issues'][0]['hint'].to_s
 # redo with right corners but wrong O.C.
 Builder.reset_commons(s_w)
 chk(Builder.stage(Builder.params_of(s_w)) == 'commons' && Yard.data['offcuts'].size >= 12, 'redo pulls the studs back (to the offcut pile)')
-@next = [[GuidedTool::CORNERS['L']], [GuidedTool::CORNERS['L']], ['24']]
-face.(s_w, 6, 50); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
-face.(s_w, 186, 50); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
+chk((Builder.params_of(s_w)['cutlist'] || {}).keys.none? { |k| k.start_with?('corner:') || k == 'oc' }, 'redo empties the stud rows')
+studs.(s_w, 'L', 'L', '24')
 Dialogs.inspect_group(s_w); ins = Builder.params_of(s_w)['last_inspection']; ins['issues'].reject! { |i| i['slot_id'] == 'TP:2' }
 chk(ins['issues'].size == 1 && ins['issues'][0]['message'].include?('24" O.C. - this wall type is 16" O.C.'), "wrong O.C. flagged once: #{ins['issues'].map { |i| i['message'] }}")
-# all right
-Builder.reset_commons(s_w)
-@next = [[GuidedTool::CORNERS['L']], [GuidedTool::CORNERS['L']], ['16']]
-face.(s_w, 6, 50); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
-face.(s_w, 186, 50); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
+# all right: just change the spacing row
+fd.fire('set_row', { 'key' => 'oc', 'v' => '16' })
 Dialogs.inspect_group(s_w); ins = Builder.params_of(s_w)['last_inspection']; ins['issues'].reject! { |i| i['slot_id'] == 'TP:2' }; puts '   ' + ins['summary']
 chk(ins['issues'].empty?, 'right corners + 16" O.C. passes')
 # E: L where a single is right
 Dialogs.focus_wall('W-102'); tool.activate
-@next = [[GuidedTool::CORNERS['L']], [GuidedTool::CORNERS['single']], ['16']]
-face.(e_w, 6, 50); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
-face.(e_w, 128, 50); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
+studs.(e_w, 'L', 'single', '16')
 Dialogs.inspect_group(e_w); ins = Builder.params_of(e_w)['last_inspection']; ins['issues'].reject! { |i| i['slot_id'] == 'TP:2' }
 chk(ins['issues'].map { |i| i['message'] } == ['No corner post needed here.'], "extra post flagged: #{ins['issues'].map { |i| i['message'] }}")
 cl = Dialogs.expected_cut_list; chk(cl[['2x6', 92.625]] > 0, 'cut list includes the corner posts')

@@ -15,18 +15,20 @@ answers = []
 UI.answers[:inputbox] = ->(pr, *_) { prompts << pr.join(' '); answers.shift }
 bp = -> { Builder.work_slots(Builder.params_of(g)).find { |s| s.id == 'BP' } }
 click = ->(s) { x0, z0, x1, z1 = Framing.slot_box(s); face.(60, (z0 + z1) / 2); tool.onMouseMove(0, 0, 0, V); tool.onLButtonDown(0, 0, 0, V) }
-# a 20' piece is refused (no stock that long)
-answers << ['2x6', "20'"]
 UI.answers[:msg] = IDYES
-click.(bp.())
-chk(UI.messages.last.to_s.include?("16'") && !Builder.params_of(g)['entries']['BP'], "20' piece refused: #{UI.messages.last}")
-chk(prompts.last.include?('Splice it'), 'pop-up explains the splice')
-# 16' first, then 4' - splice at 16' lands on a stud at any layout
-answers << ['2x6', "16'"]; click.(bp.())
+Dialogs.open_frame(g); fd = UI::HtmlDialog.all.reverse.find { |d| d.file.to_s.end_with?('frame.html') }; fd.fire('ready')
+set = ->(v) { fd.fire('set_row', { 'key' => 'plate:BP', 'v' => v, 'size' => '2x6' }); fd.last('rowsUpdate') }
+# a 20' piece is refused (no stock that long)
+u = set.("20'")
+chk(u['err'].to_s.include?("16'") && !Builder.params_of(g)['entries']['BP'], "20' piece refused: #{u['err']}")
+chk(u['err'].include?('Splice it'), 'the row explains the splice')
+# 16' first - plate not finished yet
+u = set.("16'")
 e = Builder.params_of(g)['entries']['BP']
 chk(e && e['full'] == false && Builder.stage(Builder.params_of(g)) == 'plates', 'first piece on, plate not finished yet')
-chk(Sketchup.status_text.include?('click the plate again'), "told to add the next piece: #{Sketchup.status_text}")
-answers << ['2x6', "4'"]; click.(bp.())
+chk(u['rows'][0]['note'].include?('Splice in the next piece'), "told to add the next piece: #{u['rows'][0]['note']}")
+# then 4' - splice at 16' lands on a stud at any layout
+set.("16', 4'")
 e = Builder.params_of(g)['entries']['BP']
 chk(e['full'] && Framing.plate_splices(e) == [192.0], "plate finished, spliced at 16': #{Framing.plate_splices(e)}")
 ms = Framing.members_for_entry(Builder.params_of(g), bp.(), e)
@@ -39,12 +41,11 @@ chk(r['issues'].none? { |i| i.slot_id.to_s.start_with?('SPLICE') }, '16\' splice
   chk(r['issues'].none? { |i| i.slot_id.to_s.start_with?('SPLICE') }, "16' splice on #{sp}\" layout passes")
 end
 # a bad splice: 15' 6" + 4' 6"
-Builder.remove_piece(g, 'BP'); Builder.remove_piece(g, 'BP')
-answers << ['2x6', "15' 6\""]; click.(bp.())
-answers << ['2x6', "4' 6\""]; click.(bp.())
+set.("15' 6\", 4' 6\"")
 r = Inspector.inspect_wall(Builder.params_of(g), Builder.params_of(g)['entries'], level: 'fix')
 iss = r['issues'].find { |i| i.slot_id == 'SPLICE:BP' }
 chk(iss && iss.message.include?("15' 6\""), "off-stud splice flagged: #{iss && iss.message}")
+set.("16', 4'")
 # a wall 16' or under never splices
 g2 = Builder.create_wall(Geom::Point3d.new(0, 100, 0), Geom::Point3d.new(144, 100, 0), 'Level 1', 'EXT 2x6')
 s2 = Builder.work_slots(Builder.params_of(g2)).find { |s| s.id == 'BP' }

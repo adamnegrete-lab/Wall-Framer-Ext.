@@ -44,34 +44,33 @@ def click(g, x, z) = (face(g, x, z); T.onMouseMove(0, 0, 0, V); T.onLButtonDown(
 s = id.('W-101')
 slot = ->(g, sid) { Builder.work_slots(Builder.params_of(g)).find { |x| x.id == sid } }
 cslot = ->(g, sl) { x0, z0, x1, z1 = Framing.slot_box(sl); click(g, (x0 + x1) / 2, (z0 + z1) / 2) }
+require_relative 'cut_student'
+row = lambda do |g, key, v, size = nil|
+  Dialogs.open_frame(g); d = CutStudent.frame_dialog; d.fire('ready')
+  d.fire('set_row', { 'key' => key, 'v' => v, 'size' => size }); d.last('rowsUpdate')
+end
 
-kase('cancel every pop-up') do
-  UI.answers[:inputbox] = nil
+kase('clicking a piece asks nothing') do
+  UI.answers[:inputbox] = ->(*_) { finding('a pop-up came up'); nil }
   cslot.(s, slot.(s, 'BP'))
-  Builder.params_of(s)['entries'].to_h.empty? ? ok('cancel = nothing nailed') : finding('cancel still nailed something')
+  Builder.params_of(s)['entries'].to_h.empty? ? ok('click = cut list opens, nothing nailed') : finding('click still nailed something')
+  CutStudent.frame_dialog.fire('ready')
+  CutStudent.frame_dialog.last('load')['goto_row'] == 'plate:BP' ? ok('opened at the bottom plate row') : finding('click did not open the plate row')
 end
 
 kase('garbage lengths') do
-  seq = [['2x6', 'abc'], nil]
-  UI.answers[:inputbox] = ->(*_) { seq.shift }
-  m = UI.messages.size
-  cslot.(s, slot.(s, 'BP'))
-  UI.messages[m..].any? { |x| x.include?("Couldn't read") } ? ok('garbage length -> friendly message') : finding("garbage length: no message (#{UI.messages.last})")
+  u = row.(s, 'plate:BP', 'abc', '2x6')
+  u['err'].to_s.include?("Couldn't read") ? ok('garbage length -> friendly message in the row') : finding("garbage length: no message (#{u['err']})")
 end
 
 kase('19 ft plate on a 20 ft wall') do
-  seq = [['2x6', "19'"], nil]
-  UI.answers[:inputbox] = ->(*_) { seq.shift }
-  m = UI.messages.size
-  cslot.(s, slot.(s, 'BP'))
-  UI.messages[m..].any? { |x| x.include?("Longest plate stock is 16'") } ? ok('over-16 ft piece -> splice message') : finding('19 ft piece: no splice message')
+  u = row.(s, 'plate:BP', "19'", '2x6')
+  u['err'].to_s.include?("Longest plate stock is 16'") ? ok('over-16 ft piece -> splice message') : finding('19 ft piece: no splice message')
 end
 
 kase('wrong plate length, then fix with Demo') do
   w2 = id.('W-102') # 13' 1" butt wall
-  seq = [['2x6', "12'"]]
-  UI.answers[:inputbox] = ->(*_) { seq.shift }
-  cslot.(w2, slot.(w2, 'BP'))
+  row.(w2, 'plate:BP', "12'", '2x6')
   e = Builder.params_of(w2)['entries']['BP']
   if e && e['length'] == 144.0
     r = Inspector.inspect_wall(Builder.params_of(w2), Builder.params_of(w2)['entries'], level: 'coach')
@@ -81,6 +80,7 @@ kase('wrong plate length, then fix with Demo') do
     sl = slot.(w2, 'BP'); _x0, z0, _x1, z1 = Framing.slot_box(sl); face(w2, 60, (z0 + z1) / 2)
     d.onMouseMove(0, 0, 0, V); d.onLButtonDown(0, 0, 0, V)
     Builder.params_of(w2)['entries']['BP'] ? finding('Demo did not pull the plate') : ok('Demo pulled the bad plate')
+    (Builder.params_of(w2)['cutlist'] || {})['plate:BP'] ? finding('the row still shows the pulled plate') : ok('and its cut-list row emptied')
     DMACC::WallFramer.frame_tool
   else
     finding("12' bottom plate: #{e.inspect[0, 120]}")
@@ -88,18 +88,7 @@ kase('wrong plate length, then fix with Demo') do
 end
 
 # plates on every wall, the right way
-pl = lambda do |g|
-  %w[BP TP:1].each do |sid|
-    5.times do
-      q = Builder.params_of(g)
-      e = (q['entries'] || {})[sid]
-      break if e && e['full'] != false
-      left = q['length'].to_f - (e ? e['pieces'].sum { |pc| pc['length'].to_f } : 0)
-      UI.answers[:inputbox] = ->(*_) { [q['stud'], Framing.fmt_len([left, 192].min)] }
-      cslot.(g, slot.(g, sid))
-    end
-  end
-end
+pl = ->(g) { CutStudent.fill(g, only: %w[plate:BP plate:TP:1]) }
 kase('plates everywhere') { ws.().each { |g| pl.(g) }; ok("plates in: #{ws.().map { |g| Builder.stage(Builder.params_of(g)) }.uniq}") }
 
 kase('opening pop-up mistakes') do
@@ -218,25 +207,13 @@ end
 kase('switch the layout end after studs are in') do
   w3 = id.('W-103')
   q = Builder.params_of(w3); q['openings_done'] = true; Builder.set_params(w3, q)
-  # frame the opening unit quickly
-  UI.answers[:inputbox] = lambda do |_pr, _v, _l, title|
-    sl = Builder.work_slots(Builder.params_of(w3)).find { |x| title.start_with?("#{x.label} -") }
-    next nil unless sl
-    sl.expected['role'] == 'Header' ? [Framing.fmt_len(sl.expected['length'])] : [sl.expected['size'], Framing.fmt_len(sl.expected['length'])]
-  end
-  30.times do
-    q = Builder.params_of(w3)
-    break unless Builder.stage(q) == 'units'
-    n = Builder.next_slots(q).first or break
-    cslot.(w3, n)
-  end
-  UI.answers[:inputbox] = ->(pr, *_) { pr[0].include?('Corner') ? [GuidedTool::CORNERS['single']] : ['16'] }
-  click(w3, 4, 50); click(w3, Builder.params_of(w3)['length'] - 4, 50)
+  CutStudent.fill(w3)
   n0 = (Builder.params_of(w3)['marks'] || []).size
   Builder.set_layout_from(w3, true)
   q = Builder.params_of(w3)
-  q['oc'].nil? && (q['marks'] || []).empty? ? ok("layout end switch pulled #{n0} studs to redo") : finding('layout end switch left studs in place')
-  Builder.stage(q) == 'commons' ? ok('back to the stud step') : finding("after layout switch stage = #{Builder.stage(q)}")
+  n0.positive? ? ok("#{n0} studs were in before the switch") : finding('no studs went in from the cut list')
+  Framing.from_end?(q) && (q['marks'] || []).any? ? ok("layout end switch re-laid #{q['marks'].size} studs from the far end, from the same rows") : finding('layout end switch left no layout')
+  %w[cripples framed].include?(Builder.stage(q)) ? ok("still past the studs (#{Builder.stage(q)})") : finding("after layout switch stage = #{Builder.stage(q)}")
 end
 
 kase('delete a wall that has double plate pieces') do
