@@ -1,5 +1,5 @@
 {
-  "version": "0.16.1",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.16.1.rbz",
-  "notes": "One-page Frame Wall form in job order (plates, openings, corners and studs). Build and stand wall button once every row is filled. LAYOUT START / OPPOSITE END tags on the framing table."
+  "version": "0.16.2",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.16.2.rbz",
+  "notes": "Layout start tag sits over the top corner where the layout starts (replaces the big blue label on the framing table)."
 }

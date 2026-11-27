@@ -785,8 +785,8 @@ module DMACC
           fp = Builder.params_of(fg)
           # the wall you're working on
           draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), fp['height'].to_f], 'blue', 1)
-          draw_wall_label(view, fg, fp)
-          draw_end_tags(view, fg, fp) if Builder.on_table?(fg)
+          # on the table the big label becomes the layout-start tag (SketchUp's own wall ID stays)
+          Builder.on_table?(fg) ? draw_end_tags(view, fg, fp) : draw_wall_label(view, fg, fp)
           draw_opening_tags(view, fg, fp)
           if %w[openings commons].include?(Builder.stage(fp))
             draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), Framing::T], 'blue', @mark ? 3 : 2)
@@ -852,21 +852,15 @@ module DMACC
       # Big ID over the wall you're working on.
       # On the framing table: which end the layout starts from, big enough to read from above.
       def draw_end_tags(view, g, p)
-        len = p['length'].to_f
-        mid = p['height'].to_f / 2.0
-        start_x, other_x = Framing.from_end?(p) ? [len, 0.0] : [0.0, len]
-        tag = lambda do |x, txt, color|
-          out = x < len / 2.0 ? -8.0 : 8.0
-          pt = view.screen_coords(Geom::Point3d.new(x + out, 0, mid).transform(g.transformation))
-          align = out.negative? ? TextAlignRight : TextAlignLeft
-          begin
-            view.draw_text(pt, txt, size: 18, bold: true, color: color, align: align)
-          rescue StandardError
-            view.draw_text(pt, txt)
-          end
+        start_x = Framing.from_end?(p) ? p['length'].to_f : 0.0
+        pt = view.screen_coords(Geom::Point3d.new(start_x, 0, p['height'].to_f + 12).transform(g.transformation))
+        txt = start_x.zero? ? 'LAYOUT START >' : '< LAYOUT START'
+        align = start_x.zero? ? TextAlignLeft : TextAlignRight
+        begin
+          view.draw_text(pt, txt, size: 20, bold: true, color: 'red', align: align)
+        rescue StandardError
+          view.draw_text(pt, txt)
         end
-        tag.call(start_x, start_x.zero? ? 'LAYOUT START >' : '< LAYOUT START', 'red')
-        tag.call(other_x, 'OPPOSITE END', 'gray')
       end
 
       def draw_wall_label(view, g, p)
