@@ -488,6 +488,14 @@ module DMACC
         end
       end
 
+      # Walls to click in double plate mode: the lowest level that still has double
+      # plates to set (on a 2-story model the upper walls sit right on top of them).
+      def dtp_level_walls
+        lv = all_walls.map { |w| params_of(w)['level'] }.uniq.sort_by { |l| (Project.level(l) || {})['elev'].to_f }
+                      .find { |l| level_walls(l).any? { |w| dtp_free(w).any? } }
+        lv ? all_walls.select { |w| params_of(w)['level'] == lv } : all_walls
+      end
+
       def dtp_context(level)
         ws = level_walls(level)
         shapes = ws.map { |w| wall_shape(w) }

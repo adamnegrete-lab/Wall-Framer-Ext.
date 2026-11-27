@@ -82,7 +82,7 @@ module DMACC
         @mark = nil
         @dtp = nil
         if @mode == :dtp
-          hits = Builder.all_walls.map { |g| top_hit(g, ray) }.compact
+          hits = Builder.dtp_level_walls.map { |g| top_hit(g, ray) }.compact
           @dtp = hits.min_by { |h| h[1] }
           focus(Builder.params_of(@dtp[0])['id']) if @dtp
           return

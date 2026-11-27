@@ -1,5 +1,5 @@
 {
-  "version": "0.13.7",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.7.rbz",
-  "notes": "Edit an opening before it's framed (click the panel button or right-click). An answered RFI opens the original pop-ups so the student updates the header from the answer."
+  "version": "0.13.8",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.8.rbz",
+  "notes": "Fixes: an opening can't land on a corner post or where a partition tees in; double plates on a 2-story model click the right floor; no crash editing a removed opening."
 }

@@ -483,6 +483,7 @@ module DMACC
       def opening_popup(g, center = nil, edit: nil)
         p = Builder.params_of(g)
         old = edit && p['openings'].find { |o| o['mark'] == edit }
+        return if edit && !old
         title = old ? "Edit #{edit} - #{p['id']}" : "Lay out an opening - #{p['id']}"
         center = old['x'].to_f + old['width'].to_f / 2.0 if old
         v1 = [center ? Framing.fmt_len(Framing.layout_dist(p, center)) : '', old ? old['mark'] : '', old ? old['type'] : (@last['otype'] || 'Window')]

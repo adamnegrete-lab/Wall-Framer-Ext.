@@ -484,7 +484,8 @@ module DMACC
             activate_tool
             mark = JSON.parse(a)['mark']
             op = Builder.params_of(g)['openings'].find { |o| o['mark'] == mark }
-            if op && op['rfi_new']
+            next send_yard unless op
+            if op['rfi_new']
               @tool.read_rfi_answer(g, op)
             else
               @tool.opening_popup(g, nil, edit: mark)

@@ -157,6 +157,20 @@ module DMACC
           errs << "#{name}: width must be more than 0." if o['width'].to_f <= 0
           errs << "#{name}: too close to the wall start - no room for king + jack." if left < T
           errs << "#{name}: too close to the wall end - no room for king + jack." if right > len - T
+          # an L-corner post sits behind the end stud where another wall butts in
+          need = w['corner_need'] || {}
+          post = ACTUAL[w['stud']].to_f
+          if left >= T && (need['start'] || {})['type'] == 'L' && left < T + post - 1e-6
+            errs << "#{name}: the king stud would land on the corner post at the wall start - move the opening over."
+          end
+          if right <= len - T && (need['end'] || {})['type'] == 'L' && right > len - T - post + 1e-6
+            errs << "#{name}: the king stud would land on the corner post at the wall end - move the opening over."
+          end
+          # a partition tees in: its backing needs that spot
+          (w['tee_need'] || []).each do |t|
+            next unless left < t['a1'].to_f + T && right > t['a0'].to_f - T
+            errs << "#{name}: #{t['id']} tees into this wall right there - the opening can't go where the partition lands. Check the plans."
+          end
           hd = header_dims(o, depth(w), table)
           if hd && o['height'].to_f + hd['height'] > stud_top + 1e-3
             errs << "#{name}: head height + #{header_label(o)} header won't fit under the top plate."
