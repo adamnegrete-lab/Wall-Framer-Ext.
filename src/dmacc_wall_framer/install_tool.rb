@@ -279,7 +279,7 @@ module DMACC
         g, slot, p = @target
         if occupied?(p, slot)
           UI.beep
-          Sketchup.status_text = "#{slot.label} is already nailed - right-click it to pull it."
+          Sketchup.status_text = "#{slot.label} is already nailed - pull it with the Demo tool."
           return
         end
         if (why = Builder.gate_reason(p, slot))
@@ -465,7 +465,7 @@ module DMACC
           end
         end
         label = slot.label
-        label += if occ then ' - nailed (right-click to pull)'
+        label += if occ then ' - nailed (Demo tool to pull)'
                  elsif why then " - #{why}"
                  elsif nxt then " <- #{desc(nxt)}"
                  else ' - pick a stock first'

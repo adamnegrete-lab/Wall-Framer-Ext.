@@ -688,7 +688,7 @@ module DMACC
         if hit
           ms = Framing.mark_slot(p, hit, [])
           if Inspector.complete?((p['entries'] || {})[ms.id])
-            return [nil, 'There is a stud nailed on that mark - right-click it to pull it first.']
+            return [nil, 'There is a stud nailed on that mark - pull it with the Demo tool first.']
           end
           p['marks'] = marks - [hit]
           set_params(group, p)
@@ -727,12 +727,12 @@ module DMACC
         pc = { 'id' => piece['id'], 'size' => piece['size'], 'length' => piece['length'].to_f }
         if slot.id.start_with?('HDR:')
           pcs = e && e['pieces'] ? e['pieces'] : []
-          return "Header already has #{pcs.size} plies - right-click to pull one." if pcs.size >= slot.plies.to_i
+          return "Header already has #{pcs.size} plies - pull one with the Demo tool." if pcs.size >= slot.plies.to_i
           pcs += [pc]
           p['entries'][slot_id] = { 'role' => slot.expected['role'], 'size' => pcs.first['size'],
                                     'length' => pcs.first['length'], 'pieces' => pcs }
         else
-          return 'Something is already nailed in there - right-click it to pull it.' if Inspector.complete?(e)
+          return 'Something is already nailed in there - pull it with the Demo tool.' if Inspector.complete?(e)
           p['entries'][slot_id] = { 'role' => slot.expected['role'], 'size' => pc['size'],
                                     'length' => pc['length'], 'pieces' => [pc] }
         end

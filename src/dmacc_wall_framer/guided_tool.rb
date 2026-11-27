@@ -272,7 +272,7 @@ module DMACC
 
       def piece_popup(g, slot, p)
         if occupied?(p, slot)
-          Sketchup.status_text = "#{slot.label} is already nailed - right-click it to pull it."
+          Sketchup.status_text = "#{slot.label} is already nailed - pull it with the Demo tool."
           return
         end
         if (why = Builder.gate_reason(p, slot))
@@ -385,7 +385,7 @@ module DMACC
 
       def tee_popup(g, slot, p)
         if occupied?(p, slot)
-          Sketchup.status_text = "#{slot.label} is in - right-click it to pull it."
+          Sketchup.status_text = "#{slot.label} is in - pull it with the Demo tool."
           return
         end
         if (why = Builder.gate_reason(p, slot))
@@ -730,7 +730,7 @@ module DMACC
         occ = occupied?(p, slot)
         why = occ ? nil : Builder.gate_reason(p, slot)
         draw_box(view, g.transformation, [x0, 0, z0], [x1, d, z1], occ ? 'red' : (why ? 'gray' : 'lime'), 3)
-        label = slot.label + if occ then ' - nailed (right-click to pull)'
+        label = slot.label + if occ then ' - nailed (Demo tool to pull)'
                              elsif why then " - #{why}"
                              else ' - click to cut and nail'
                              end

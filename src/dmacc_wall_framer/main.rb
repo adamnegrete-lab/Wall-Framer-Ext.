@@ -1,7 +1,7 @@
 require 'sketchup.rb'
 require 'json'
 
-%w[version updater views framing corners joints inspector takeoff answer_key yard_logic shop project builder yard_view tools corner_tool install_tool guided_tool dialogs].each do |f|
+%w[version updater views framing corners joints inspector takeoff answer_key yard_logic shop project builder yard_view tools corner_tool install_tool guided_tool demo_tool dialogs].each do |f|
   Sketchup.require(File.join(__dir__, f))
 end
 
@@ -232,6 +232,13 @@ module DMACC
         Sketchup.status_text = 'Tape Measure: click the Frame tool when you are done measuring to pick up where you left off.'
       end
 
+      def demo_tool
+        Builder.close_edits
+        return UI.messagebox('Place some walls first.') if Builder.all_walls.empty?
+        @demo ||= DemoTool.new
+        Sketchup.active_model.select_tool(@demo)
+      end
+
       def dtp_tool
         Builder.close_edits
         return UI.messagebox('Place some walls first.') if Builder.all_walls.empty?
@@ -261,6 +268,7 @@ module DMACC
       menu = UI.menu('Extensions').add_submenu('Wall Framer')
       menu.add_item('Project Setup...') { Dialogs.open_setup }
       menu.add_item('Framing Panel') { Dialogs.open_yard }
+      menu.add_item('Demo Tool (pull pieces)') { demo_tool }
       menu.add_item('Openings + Member List (selected wall)...') { frame_wall }
       menu.add_item('Change Wall Type of Selected...') { change_wall_type }
       menu.add_item('Export Auto Cut List (CSV)...') { export_cut_list }
@@ -334,6 +342,8 @@ module DMACC
       file_loaded('dmacc_wf_rfi_timer')
     end
 
+    DEMO_BUTTON = ['Demo - click a piece to pull it (Esc when done)', 'demo', proc { WallFramer.demo_tool }].freeze unless defined?(DEMO_BUTTON)
+
     # ---------- the toolbar: the job-site sequence, left to right ----------
     # (its own guard, so "Reload After Update" can add it without a restart)
     unless file_loaded?('dmacc_wf_toolbar_v3')
@@ -347,6 +357,7 @@ module DMACC
        ['Corners - which walls run through (plan view)', 'corners', proc { corners_tool }],
        ['Frame - pick up where you left off (click a wall to switch)', 'frame', proc { frame_tool }],
        ['Tape Measure (click Frame when done)', 'tape', proc { tape_tool }],
+       DEMO_BUTTON,
        ['Double Top Plates (top view)', 'dtp', proc { dtp_tool }],
        ['Request Inspection', 'inspect', proc { inspect_tool }],
        ['Shop Drawing', 'shop', proc { shop_tool }],
@@ -361,6 +372,18 @@ module DMACC
       end
       tb.show
       file_loaded('dmacc_wf_toolbar_v3')
+      file_loaded('dmacc_wf_demo_btn')
+    end
+    # Already running an older toolbar (Reload After Update): add the Demo button to it.
+    unless file_loaded?('dmacc_wf_demo_btn')
+      label, icon, blk = DEMO_BUTTON
+      cmd = UI::Command.new(label, &blk)
+      cmd.tooltip = label
+      cmd.status_bar_text = label
+      cmd.small_icon = File.join(__dir__, 'icons', "#{icon}_24.png")
+      cmd.large_icon = File.join(__dir__, 'icons', "#{icon}_32.png")
+      UI.toolbar('Wall Framer Steps').add_item(cmd) if UI.respond_to?(:toolbar)
+      file_loaded('dmacc_wf_demo_btn')
     end
   end
 end

@@ -1,5 +1,5 @@
 {
-  "version": "0.12.0",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.12.0.rbz",
-  "notes": "RFI form, header tables picked by level and house width, header plies from the plans, header mark check and re-mark, right-click to finish or remove openings, wall labels, short pile tags. RFI delay set to 1 minute for testing."
+  "version": "0.12.1",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.12.1.rbz",
+  "notes": "New Demo tool (toolbar, next to the Tape Measure): hover a piece and click to pull it."
 }
