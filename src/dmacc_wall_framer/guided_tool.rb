@@ -393,7 +393,7 @@ module DMACC
         return nil unless Framing.plate?(slot) && p['length'].to_f > Framing::STOCK_MAX
         e = (p['entries'] || {})[slot.id]
         if e && (e['pieces'] || []).any?
-          ' - next piece, from the splice toward the far end'
+          ' - next piece, from the splice toward the opposite end'
         else
           " - longest stock is 16'. Splice it: first piece from the arrow end, splice centered on a stud"
         end
@@ -523,7 +523,7 @@ module DMACC
       end
 
       def tape_end(p)
-        Framing.from_end?(p) ? 'the layout end (tape hooked on the far end of the wall)' : 'wall start (tape hooked on the arrow end)'
+        Framing.from_end?(p) ? 'the layout end (tape hooked on the opposite end of the wall)' : 'wall start (tape hooked on the arrow end)'
       end
 
       # Two pop-ups: what it is, then what the plans say about it (doors have no head height).
@@ -653,7 +653,7 @@ module DMACC
                                when 'cripples' then "#{id}: studs are in. Cripples and header blocks land on your layout - fill in their lengths."
                                when 'framed'
                                  if Builder.on_table?(g)
-                                   "#{id} is framed. Inspect it while it's flat if you want, then click Stand it up in the Frame Wall form."
+                                   "#{id} is framed. Inspect it while it's flat if you want, then click Build and stand wall in the Frame Wall form."
                                  else
                                    "#{id} is framed. Request an inspection from the Framing panel."
                                  end
@@ -786,6 +786,7 @@ module DMACC
           # the wall you're working on
           draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), fp['height'].to_f], 'blue', 1)
           draw_wall_label(view, fg, fp)
+          draw_end_tags(view, fg, fp) if Builder.on_table?(fg)
           draw_opening_tags(view, fg, fp)
           if %w[openings commons].include?(Builder.stage(fp))
             draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), Framing::T], 'blue', @mark ? 3 : 2)
@@ -849,6 +850,25 @@ module DMACC
       end
 
       # Big ID over the wall you're working on.
+      # On the framing table: which end the layout starts from, big enough to read from above.
+      def draw_end_tags(view, g, p)
+        len = p['length'].to_f
+        mid = p['height'].to_f / 2.0
+        start_x, other_x = Framing.from_end?(p) ? [len, 0.0] : [0.0, len]
+        tag = lambda do |x, txt, color|
+          out = x < len / 2.0 ? -8.0 : 8.0
+          pt = view.screen_coords(Geom::Point3d.new(x + out, 0, mid).transform(g.transformation))
+          align = out.negative? ? TextAlignRight : TextAlignLeft
+          begin
+            view.draw_text(pt, txt, size: 18, bold: true, color: color, align: align)
+          rescue StandardError
+            view.draw_text(pt, txt)
+          end
+        end
+        tag.call(start_x, start_x.zero? ? 'LAYOUT START >' : '< LAYOUT START', 'red')
+        tag.call(other_x, 'OPPOSITE END', 'gray')
+      end
+
       def draw_wall_label(view, g, p)
         pt = view.screen_coords(Geom::Point3d.new(p['length'].to_f / 2.0, 0, p['height'].to_f + 12).transform(g.transformation))
         txt = "#{p['id']}  (#{Builder.stage(p)})"

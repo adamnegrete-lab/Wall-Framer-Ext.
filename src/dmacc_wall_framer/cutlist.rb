@@ -48,8 +48,8 @@ module DMACC
           add.call("above:#{mk}", sec, 'Header blocks (cripples above)', 'len',
                    ids.call { |s| s.phase == 'cripples' && s.anchor == :top }, 'size' => true, 'opening' => mk, 'layout' => true)
         end
-        add.call('corner:start', STUDS, 'Corner at the arrow end', 'corner', slots.select { |s| s.phase == 'commons' && corner_slot?(s, 'start') }.map(&:id))
-        add.call('corner:end', STUDS, 'Corner at the far end', 'corner', slots.select { |s| s.phase == 'commons' && corner_slot?(s, 'end') }.map(&:id))
+        add.call('corner:start', STUDS, 'Corner at the layout start', 'corner', slots.select { |s| s.phase == 'commons' && corner_slot?(s, 'start') }.map(&:id))
+        add.call('corner:end', STUDS, 'Corner at the opposite end', 'corner', slots.select { |s| s.phase == 'commons' && corner_slot?(s, 'end') }.map(&:id))
         add.call('oc', STUDS, 'Stud spacing (on center)', 'oc', [])
         add.call('common', STUDS, 'Common studs (also end studs + corner post pieces)', 'len',
                  slots.select { |s| s.phase == 'commons' && s.kind != :backing }.map(&:id), 'size' => true)
@@ -97,17 +97,17 @@ module DMACC
           return { 'state' => 'placed', 'note' => 'In.' } if done
           st = store(p)
           other = end_name == 'start' ? 'end' : 'start'
-          why = if !(st["corner:#{other}"] || {})['v'] then "pick the #{other == 'end' ? 'far end' : 'arrow end'} corner too"
+          why = if !(st["corner:#{other}"] || {})['v'] then "pick the #{other == 'end' ? 'opposite end' : 'layout start'} corner too"
                 elsif !(st['oc'] || {})['v'] then 'pick the stud spacing'
                 elsif !(st['common'] || {})['v'] then 'type the common stud length'
-                elsif !p['openings_done'] then 'enter the openings first'
+                elsif !p['openings_done'] then 'enter the openings above first'
                 else 'finish the openings first'
                 end
           return { 'state' => 'waiting', 'note' => "Goes in with the common studs - #{why}." }
         when 'oc'
           return { 'state' => 'todo', 'note' => '' } if v['v'].to_s.empty?
-          return { 'state' => 'placed', 'note' => "Laid out from the #{Framing.from_end?(p) ? 'far' : 'arrow'} end." } if p['oc']
-          return { 'state' => 'waiting', 'note' => 'Enter the openings first (tab 1) - the layout skips over them.' } unless p['openings_done']
+          return { 'state' => 'placed', 'note' => 'Laid out from the layout start.' } if p['oc']
+          return { 'state' => 'waiting', 'note' => 'Enter the openings above first - the layout skips over them.' } unless p['openings_done']
           return { 'state' => 'waiting', 'note' => 'Pick both corners - then the layout goes on the plates.' }
         end
         installed = r['slots'].map { |id| e[id] && Inspector.complete?(e[id]) ? pieces_text(e[id]) : nil }.compact
@@ -132,8 +132,19 @@ module DMACC
                                                  'still to go. Splice in the next piece (comma between pieces).' }
         end
         why = r['slots'].map { |id| by[id] && !Inspector.slot_done?(by[id], e[id]) ? Builder.gate_reason(p, by[id]) : nil }.compact.first
-        why ||= 'Goes in with the common studs.' if key == 'common' && !p['oc']
+        if key == 'common' && !p['oc']
+          st = store(p)
+          why = if !p['openings_done'] then 'Waits for the openings - enter them above (or No openings in this wall).'
+                elsif !(st['corner:start'] || {})['v'] || !(st['corner:end'] || {})['v'] then 'Pick both corners first.'
+                else 'Pick the stud spacing first.'
+                end
+        end
         { 'state' => 'waiting', 'note' => (have.positive? ? "#{have} of #{r['slots'].size} in. " : '') + (why || 'Waiting.') }
+      end
+
+      # Every row the student has to fill has a value (rows with nothing to place don't count).
+      def all_filled?(rows)
+        rows.all? { |r| !r['value'].to_s.empty? || r['state'] == 'none' || (r['slots'].empty? && %w[len lens].include?(r['input'])) }
       end
 
       def pieces_text(en)

@@ -1,5 +1,5 @@
 {
-  "version": "0.16.0",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.16.0.rbz",
-  "notes": "Cut list: plates, openings, corners and studs are typed into one table in the Frame Wall form (any order). Pieces go in as rows are filled; rows that have to wait say why. No more piece, corner or spacing pop-ups."
+  "version": "0.16.1",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.16.1.rbz",
+  "notes": "One-page Frame Wall form in job order (plates, openings, corners and studs). Build and stand wall button once every row is filled. LAYOUT START / OPPOSITE END tags on the framing table."
 }

@@ -70,8 +70,9 @@
 </nav>
 <main>
   <section class="tab on" id="tab-openings">
+    <h2 id="op-head" style="display:none">Openings</h2>
     <p class="note">Enter every door and window in this wall from the plans: the mark from the schedule, the position, the rough opening and the header.
-      <strong>Positions are measured from the arrow end of the wall</strong> (where your layout starts). You can keep using the Tape Measure while this window is open.</p>
+      <strong>Positions are measured from the layout start</strong> (the arrow end of the wall). You can keep using the Tape Measure while this window is open.</p>
     <div id="op-errors"></div>
     <div class="row op head"><div>Mark</div><div>Type</div><div>Position</div><div>RO width</div><div>RO height</div><div>Head height (windows)</div><div>Header (plans)</div><div>Plies</div><div></div></div>
     <div id="ops"></div>
@@ -79,16 +80,20 @@
       &nbsp; Position measured to:
       <select id="pos-mode" style="width:auto"><option value="center">center of the RO</option><option value="left">near edge of the RO (closest to the arrow)</option></select></p>
     <p class="note">Lengths: type feet and inches like 7' 8-5/8" or inches like 92 5/8. Header not on the plans or in the general notes? Pick "Not on plans - submit RFI". Don't assume.</p>
+    <p id="op-inline" style="display:none"><button class="btn primary" id="save-ops2">Save openings</button>
+      <button class="btn" id="no-ops2">No openings in this wall</button> <span class="note" id="op-saved"></span></p>
   </section>
 
   <section class="tab" id="tab-cutlist">
     <div class="nexthint" id="next"></div>
     <div id="cl-summary"></div>
-    <p class="note">Fill in each row from the plans and your own measurements - any order, and come back to change one any time.
-      A row goes into the wall as soon as you press Enter (or pick from a list) - if it has to wait for something, it says what.
+    <p class="note">Work down the page like the job: plates, then the openings, then corners, backing and studs.
+      A row goes into the wall as soon as you press Enter (or pick from a list) - if it has to wait for something, it says what. Come back and change any row any time.
       Keep the Tape Measure handy: measure the openings on the table for cripples, headers and header blocks.
-      Lengths: 92 5/8 or 7' 8-5/8". Plates over 16' get spliced - type each piece from the arrow end with a comma between.</p>
+      Lengths: 92 5/8 or 7' 8-5/8". Plates over 16' get spliced - type each piece from the layout start with a comma between.</p>
     <div class="row cl head"><div>Piece</div><div>Lumber</div><div>Cut length / choice</div><div>Status</div></div>
+    <div id="cl-plates"></div>
+    <div id="op-slot"></div>
     <div id="cl"></div>
   </section>
 
@@ -106,7 +111,7 @@
   <button class="btn primary" id="save-ops">Save openings</button>
   <button class="btn" id="shop" style="display:none">Shop drawing</button>
   <button class="btn" id="save-entries" style="display:none">Go frame it (yard + tools)</button>
-  <button class="btn" id="stand" style="display:none">Stand it up</button>
+  <button class="btn primary" id="stand" style="display:none">Build and stand wall</button>
   <button class="btn primary" id="inspect" style="display:none">Request inspection</button>
 </div>
 
@@ -145,6 +150,7 @@ document.querySelectorAll('nav button').forEach(function (b) {
   b.addEventListener('click', function () { showTab(b.dataset.tab); });
 });
 function showTab(t) {
+  if (S && S.guided) t = 'cutlist'; // one page in guided mode
   document.querySelectorAll('nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
   document.querySelectorAll('.tab').forEach(function (s) { s.classList.toggle('on', s.id === 'tab-' + t); });
   $('save-ops').style.display = t === 'openings' ? '' : 'none';
@@ -152,7 +158,11 @@ function showTab(t) {
   $('save-entries').style.display = t === 'framing' ? '' : 'none';
   $('shop').style.display = t === 'framing' ? '' : 'none';
   $('inspect').style.display = t === 'framing' || t === 'cutlist' ? '' : 'none';
-  $('stand').style.display = t === 'cutlist' && S && S.on_table ? '' : 'none';
+  $('stand').style.display = t === 'cutlist' && S && S.ready_to_build ? '' : 'none';
+  if (S && S.guided) {
+    $('save-ops').style.display = 'none'; $('no-ops').style.display = 'none';
+    $('no-ops2').style.display = document.querySelectorAll('#ops .row').length ? 'none' : '';
+  }
 }
 
 // ---------- openings ----------
@@ -284,11 +294,12 @@ function renderCut(rows) {
   var keys = rows.map(function (r) { return r.key + '|' + r.label; }).join(',');
   if (keys !== clKeys) {
     clKeys = keys;
-    var box = $('cl'); box.innerHTML = '';
+    var top = $('cl-plates'), box = $('cl'); top.innerHTML = ''; box.innerHTML = '';
     var sec = null;
     rows.forEach(function (r) {
-      if (r.section !== sec) { sec = r.section; box.appendChild(el('h2', { text: sec })); }
-      box.appendChild(clRow(r));
+      var into = r.section === 'Plates' ? top : box;
+      if (r.section !== sec) { sec = r.section; into.appendChild(el('h2', { text: sec })); }
+      into.appendChild(clRow(r));
     });
   } else {
     rows.forEach(function (r) {
@@ -332,7 +343,7 @@ function gotoRow(key) {
   var f = row.querySelector('[data-key]'); if (f) setTimeout(function () { f.focus(); if (f.select) f.select(); }, 30);
 }
 function rowsUpdate(u) {
-  S.cutlist = u.rows; S.on_table = u.on_table; S.stage = u.stage; lastStage = u.stage;
+  S.cutlist = u.rows; S.on_table = u.on_table; S.stage = u.stage; lastStage = u.stage; S.ready_to_build = u.ready_to_build;
   renderCut(u.rows);
   $('next').textContent = u.next;
   var r = u.rows.filter(function (x) { return x.key === u.key; })[0];
@@ -343,7 +354,9 @@ function rowsUpdate(u) {
   } else $('status').textContent = r ? r.label + ': ' + (r.note || 'saved.') : 'Saved.';
   showTab(document.querySelector('nav button.on').dataset.tab);
 }
-$('stand').addEventListener('click', function () { call('stand_up', {}); });
+$('stand').addEventListener('click', function () { call('build_stand', {}); });
+$('save-ops2').addEventListener('click', function () { $('save-ops').click(); });
+$('no-ops2').addEventListener('click', function () { $('no-ops').click(); });
 
 // ---------- inspection results ----------
 function showInspection(res) {
@@ -410,11 +423,19 @@ function load(state) {
     clKeys = '';
     renderCut(state.cutlist);
     $('next').textContent = state.next;
-    // the tab follows the job: openings when it's time for them, the cut list otherwise
-    if (state.stage !== lastStage) showTab(state.stage === 'openings' ? 'openings' : 'cutlist');
+    // one page, in job order: the openings table sits between the plates and the rest
+    var ot = $('tab-openings');
+    if (ot.parentNode !== $('op-slot')) { $('op-slot').appendChild(ot); }
+    ot.classList.add('on'); ot.style.display = 'block';
+    $('op-head').style.display = ''; $('op-inline').style.display = '';
+    document.querySelector('nav').style.display = 'none';
+    showTab('cutlist');
+    ot.style.display = 'block';
+    var wantOps = state.stage === 'openings' || state.openings.some(function (o) { return o.rfi_note; });
+    if (wantOps && (state.stage !== lastStage || state.openings.some(function (o) { return o.rfi_note; })))
+      setTimeout(function () { $('op-head').scrollIntoView({ block: 'start' }); }, 30);
     lastStage = state.stage;
-    // an answered RFI waits on the Openings tab
-    if (state.openings.some(function (o) { return o.rfi_note; })) showTab('openings');
+    $('meta').textContent += '  |  layout starts at the ' + state.start_side.toUpperCase() + ' end (as it lies on the table)';
   } else if (document.querySelector('nav button.on').dataset.tab === 'cutlist') showTab('framing');
   if (state.prefill) {
     var r = opRow({ x_text: state.prefill.x_text });
@@ -451,7 +472,10 @@ function entryErrors(errs) {
   $('status').textContent = n ? n + " length(s) couldn't be read - see red rows." : 'Members installed.';
 }
 function setStatus(t) { $('status').textContent = t; }
-function afterOps() { showTab(S && S.guided ? 'cutlist' : 'framing'); }
+function afterOps() {
+  if (S && S.guided) { $('op-saved').textContent = 'Openings saved - their framing rows are below.'; var c = $('cl'); if (c.firstChild) c.firstChild.scrollIntoView({ block: 'start' }); }
+  else showTab('framing');
+}
 
 window.onload = function () { sketchup.ready(''); };
 </script>

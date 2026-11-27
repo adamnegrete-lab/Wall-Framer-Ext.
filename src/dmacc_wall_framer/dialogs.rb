@@ -72,6 +72,7 @@ module DMACC
           d.add_action_callback('shop') { |_c, _a| (g = frame_group) && open_shop(g) }
           d.add_action_callback('zoom') { |_c, a| zoom(JSON.parse(a)['slot']) }
           d.add_action_callback('set_row') { |_c, a| set_row(JSON.parse(a)) }
+          d.add_action_callback('build_stand') { |_c, _a| build_and_stand }
           d.add_action_callback('stand_up') do |_c, _a|
             g = frame_group or next
             activate_tool
@@ -90,8 +91,34 @@ module DMACC
           g = frame_group or return
           p = Builder.params_of(g)
           js(@frame, 'rowsUpdate', 'rows' => CutList.rows(p), 'key' => data['key'], 'err' => err,
-                                   'stage' => Builder.stage(p), 'on_table' => Builder.on_table?(g), 'next' => next_hint(p))
+                                   'stage' => Builder.stage(p), 'on_table' => Builder.on_table?(g), 'next' => next_hint(p),
+                                   'ready_to_build' => ready_to_build?(p))
           @tool.announce(g, before) if @tool.respond_to?(:announce)
+          refresh_yard
+          Sketchup.active_model.active_view.invalidate
+        end
+
+        def ready_to_build?(p)
+          p['openings_done'] && CutList.all_filled?(CutList.rows(p))
+        end
+
+        # Every row filled: put in anything still waiting, then stand the wall up.
+        def build_and_stand
+          g = frame_group or return
+          operation('Build Wall') { CutList.apply(g) }
+          p = Builder.params_of(g)
+          if Builder.stage(p) == 'framed'
+            activate_tool
+            if Builder.on_table?(g) && @tool.respond_to?(:stand_up)
+              @tool.stand_up(g)
+            end
+            send_frame
+            js(@frame, 'setStatus', "#{p['id']} is built and standing on its line.")
+          else
+            send_frame
+            left = CutList.rows(p).reject { |r| %w[placed none].include?(r['state']) }
+            js(@frame, 'setStatus', "Not built yet - check: #{left.first(3).map { |r| "#{r['label']} (#{r['note']})" }.join('; ')}")
+          end
           refresh_yard
           Sketchup.active_model.active_view.invalidate
         end
@@ -100,11 +127,11 @@ module DMACC
           case Builder.stage(p)
           when 'corners' then 'Set the plan corners first (Corners tool).'
           when 'plates' then 'Next: cut the bottom and top plates.'
-          when 'openings' then 'Next: enter the openings from the plans (tab 1), or No openings in this wall.'
+          when 'openings' then 'Next: enter the openings from the plans (Openings, below the plates), or click No openings in this wall.'
           when 'units' then 'Next: frame each opening - kings, jacks, header, sill.'
           when 'commons' then 'Next: corners, stud spacing and common studs.'
           when 'cripples' then 'Next: cripples under the sills and header blocks - they land on your layout.'
-          else Builder.on_table?(Builder.find_wall(p['id'])) ? 'Framed. Stand it up when you are ready (inspect first if you want).' : 'Framed.'
+          else Builder.on_table?(Builder.find_wall(p['id'])) ? 'Framed. Click Build and stand wall when you are ready (inspect first if you want).' : 'Framed.'
           end
         end
 
@@ -175,6 +202,8 @@ module DMACC
             'stud_sizes' => %w[2x4 2x6],
             'stage' => Builder.stage(p), 'next' => next_hint(p),
             'on_table' => Builder.on_table?(group),
+            'ready_to_build' => ready_to_build?(p),
+            'start_side' => Framing.from_end?(p) ? 'right' : 'left',
             'goto_row' => @goto_row
           }
         end
