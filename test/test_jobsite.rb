@@ -48,7 +48,8 @@ nail.(ws.find { |s| s.id == 'HDR:D1' }); chk(Sketchup.status_text.include?('Both
 order = ->(role) { Builder.work_slots(Builder.params_of(g)).select { |s| s.opening == 'D1' && s.expected['role'] == role } }
 (order.('King Stud') + order.('Jack Stud')).each { |s| nail.(s) }
 3.times { nail.(order.('Header').first) }
-order.('Cripple Stud').each { |s| nail.(s) }
+nail.(order.('Cripple Stud').first)
+chk(Sketchup.status_text.include?('cripples and header blocks follow your stud layout'), "cripples wait for the stud layout: #{Sketchup.status_text}")
 # commons before layout: none exist yet as work slots (student layout on)
 p1 = Builder.params_of(g)
 chk(Builder.work_slots(p1).count(&:common) == 0, 'no common studs until laid out')
@@ -60,6 +61,7 @@ down.(124.0); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
 chk(Sketchup.status_text.include?('inside D1'), "no marks inside the door unit: #{Sketchup.status_text}")
 tool.set_mode(:nail)
 Builder.work_slots(Builder.params_of(g)).select { |s| s.phase == 'commons' }.each { |s| nail.(s) }
+order.('Cripple Stud').each { |s| nail.(s) }
 chk(Builder.place_dtp(g).nil?, 'double plate placed as the building step')
 yd.fire('inspect')
 w = yd.last('load')['wall']; puts '   ' + w['inspection']['summary']

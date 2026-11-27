@@ -21,6 +21,7 @@ module DMACC
         @mode = :guided unless @mode == :dtp
         @last ||= {} # last value typed per role - just press Enter to repeat
         super
+        Dialogs.notify_rfis(Project.release_rfis)
         g = Dialogs.focus_group
         @focus = g && Builder.params_of(g)['id'] # pick up where you left off
         update_ui
@@ -109,6 +110,17 @@ module DMACC
         (x.to_f * 16).round / 16.0
       end
 
+      # A spot on the wall (from the start) rounded to the 1/16 on the tape,
+      # with the tape hooked on the layout end.
+      def tape_snap(p, lx)
+        Framing.from_end?(p) ? p['length'].to_f - reading(p['length'].to_f - lx) : reading(lx)
+      end
+
+      # Tape reading (from the layout end) -> spot on the wall (from the start).
+      def from_tape(p, t)
+        Framing.from_end?(p) ? p['length'].to_f - t : t
+      end
+
       # ---------- clicking ----------
 
       def onLButtonDown(_flags, x, y, view)
@@ -128,7 +140,7 @@ module DMACC
             # on a pencil mark (or a Tape Measure guide): use it
             before == 'openings' ? opening_popup(g, lx) : mark_click(g, lx)
           else
-            pencil(g, reading(lx))
+            pencil(g, tape_snap(p, lx))
           end
           announce(g, before)
         elsif @target && Builder.stage(@target[2]) == 'corners'
@@ -137,7 +149,13 @@ module DMACC
         elsif @target
           g, slot, p = @target
           before = Builder.stage(p)
-          piece_popup(g, slot, p)
+          if slot.kind == :backing
+            tee_popup(g, slot, p)
+          elsif king_needs_mark?(p, slot)
+            header_mark_popup(g, slot, p)
+          else
+            piece_popup(g, slot, p)
+          end
           announce(g, before)
         end
         update_ui
@@ -172,6 +190,7 @@ module DMACC
           Sketchup.status_text = "Couldn't read \"#{text}\" - try 48 or 4' 0\"."
           return
         end
+        x = from_tape(p, x)
         before = stage
         if stage == 'openings'
           pencil(g, x)
@@ -190,7 +209,7 @@ module DMACC
       def corner_popup(g, end_name)
         Builder.refresh_corner_needs(Builder.params_of(g)['level'])
         p = Builder.params_of(g)
-        where = end_name == 'start' ? 'wall start (arrow end)' : 'wall end'
+        where = end_name == 'start' ? 'wall start' : 'wall end'
         cur = CORNERS[(p['corners'] || {})[end_name]] || CORNERS['single']
         res = UI.inputbox(["Corner assembly at the #{where}"], [cur], [CORNERS.values.join('|')], "Corner - #{p['id']}")
         return unless res
@@ -226,7 +245,7 @@ module DMACC
       def stud_mark_popup(g)
         p = Builder.params_of(g)
         sp = p['spacing'].to_f
-        res = UI.inputbox(["Stud center from wall start (your #{sp == sp.round ? sp.round : sp}\" O.C. layout)"],
+        res = UI.inputbox(["Stud center from #{tape_end(p)} (your #{sp == sp.round ? sp.round : sp}\" O.C. layout)"],
                           [@last['layout'] || ''], [''], "Stud layout mark - #{p['id']}")
         return unless res
         x = Framing.parse_len(res[0])
@@ -235,7 +254,7 @@ module DMACC
           return
         end
         @last['layout'] = res[0]
-        mark_click(g, x)
+        mark_click(g, from_tape(p, x))
       end
 
       def mark_click(g, lx)
@@ -259,41 +278,126 @@ module DMACC
           return
         end
         role = slot.expected['role']
-        tip = Project.settings['popup_tips'] && TIPS[tip_key(slot)] ? " (#{TIPS[tip_key(slot)]})" : ''
+        header = role == 'Header'
+        tip = tip_for(slot, p)
         title = "#{slot.label} - #{p['id']}"
-        sizes = role == 'Header' ? '2x6|2x8|2x10|2x12' : '2x4|2x6'
-        defaults = @last[role] || [role == 'Header' ? '2x8' : p['stud'], '', '2']
-        defaults = [defaults[0], defaults[1], defaults[2]]
-        defaults[0] = p['stud'] if role != 'Header' && !sizes.split('|').include?(defaults[0])
-        prompts = ['Lumber size', "Cut length#{tip}"]
-        lists = [sizes, '']
-        vals = [defaults[0], defaults[1]]
-        if role == 'Header'
-          prompts << 'Plies (pieces nailed together)'
-          lists << '1|2|3'
-          vals << defaults[2]
+        defaults = @last[role] || [header ? '' : p['stud'], '', '2']
+        prompts = []
+        lists = []
+        vals = []
+        if header
+          # The size was set from the plans when the opening was laid out - only the cut is asked here.
+          op = p['openings'].find { |o| o['mark'] == slot.opening }
+          prompts << "Cut length#{tip}" << "Plies (pieces nailed together) - header per plans: #{Framing.header_label(op)}"
+          lists << '' << '1|2|3'
+          vals << defaults[1] << (op && op['header'] == Framing::FLAT ? '2' : defaults[2])
+        else
+          sizes = '2x4|2x6'
+          size = sizes.split('|').include?(defaults[0]) ? defaults[0] : p['stud']
+          prompts << 'Lumber size' << "Cut length#{tip}"
+          lists << sizes << ''
+          vals << size << defaults[1]
         end
         loop do
           res = UI.inputbox(prompts, vals, lists, title)
           return unless res
-          len = Framing.parse_len(res[1])
+          size = header ? slot.expected['size'] : res[0]
+          len_s = header ? res[0] : res[1]
+          len = Framing.parse_len(len_s)
           unless len && len > 0
-            UI.messagebox("Couldn't read the cut length \"#{res[1]}\". Try 81, 6' 9\", or 92 5/8.")
+            UI.messagebox("Couldn't read the cut length \"#{len_s}\". Try 81, 6' 9\", or 92 5/8.")
             vals = res
             next
           end
-          plies = role == 'Header' ? res[2].to_i : 1
+          plies = header ? res[1].to_i : 1
           model = Sketchup.active_model
           model.start_operation("Nail #{role}", true)
-          err = Builder.nail_supplied(g, slot, res[0], len, plies)
+          err = Builder.nail_supplied(g, slot, size, len, plies)
           model.commit_operation
           if err
             UI.messagebox(err)
             return
           end
-          @last[role] = [res[0], res[1], res[2] || '2']
-          Sketchup.status_text = "Nailed #{plies > 1 ? "#{plies} x " : ''}#{res[0]} x #{Framing.fmt_len(len)} - #{slot.label}."
+          @last[role] = header ? [size, res[0], res[1]] : [res[0], res[1], '2']
+          Sketchup.status_text = "Nailed #{plies > 1 ? "#{plies} x " : ''}#{size} x #{Framing.fmt_len(len)} - #{slot.label}."
           break
+        end
+        Dialogs.refresh_yard
+        Dialogs.refresh_frame
+      end
+
+      def tip_for(slot, p)
+        if slot.expected['role'] == 'Jack Stud' && (z = (p['hdr_marks'] || {})[slot.opening])
+          return " (your header mark on the kings is at #{Framing.fmt_len(z.to_f)} from the subfloor - " \
+                 'measure from the top of the bottom plate up to the mark)'
+        end
+        return '' unless Project.settings['popup_tips'] && TIPS[tip_key(slot)]
+        " (#{TIPS[tip_key(slot)]})"
+      end
+
+      # A nailed king on an opening with no header mark yet: mark the header height on it.
+      def king_needs_mark?(p, slot)
+        return false unless slot.expected['role'] == 'King Stud' && slot.opening
+        return false if (p['hdr_marks'] || {})[slot.opening]
+        occupied?(p, slot)
+      end
+
+      def header_mark_popup(g, slot, p)
+        op = p['openings'].find { |o| o['mark'] == slot.opening }
+        prompt = "Header height for #{slot.opening} - bottom of the header, measured from the subfloor"
+        loop do
+          res = UI.inputbox([prompt], [@last['hdr_mark'] || ''], [''], "Mark the kings - #{slot.opening}")
+          return unless res
+          z = Framing.parse_len(res[0])
+          unless z && z > Framing::T && z < p['height'].to_f
+            UI.messagebox("Couldn't read \"#{res[0]}\" as a height on this wall. Try 82 1/2 or 6' 10 1/2\".")
+            next
+          end
+          @last['hdr_mark'] = res[0]
+          model = Sketchup.active_model
+          model.start_operation('Mark Header Height', true)
+          p = Builder.params_of(g)
+          p['hdr_marks'] = (p['hdr_marks'] || {}).merge(slot.opening => z)
+          Builder.set_params(g, p)
+          Builder.rebuild(g)
+          model.commit_operation
+          jl = z - Framing::T
+          Sketchup.status_text = "#{slot.opening}: header height marked on the kings at #{Framing.fmt_len(z)}. " \
+                                 "Your jacks run from the top of the bottom plate up to the mark."
+          Dialogs.refresh_frame
+          return jl
+        end
+      end
+
+      BACKING = {
+        'ladder' => 'Ladder blocking (flat blocks between the studs)',
+        'channel' => '3-stud channel (two studs flanking the partition)'
+      }.freeze
+
+      def tee_popup(g, slot, p)
+        if occupied?(p, slot)
+          Sketchup.status_text = "#{slot.label} is in - right-click it to pull it."
+          return
+        end
+        if (why = Builder.gate_reason(p, slot))
+          UI.beep
+          Sketchup.status_text = why
+          return
+        end
+        oc = (Project.settings['ladder_oc'] || 24).to_f
+        res = UI.inputbox(["Backing for the #{slot.id.sub('TEE:', '')} partition (ladder blocks at #{oc == oc.round ? oc.round : oc}\" O.C.)"],
+                          [BACKING[@last['backing'] || 'ladder']], [BACKING.values.join('|')], "Partition backing - #{p['id']}")
+        return unless res
+        kind = BACKING.key(res[0]) || 'ladder'
+        @last['backing'] = kind
+        model = Sketchup.active_model
+        model.start_operation('Partition Backing', true)
+        err = Builder.install_tee(g, slot.id.sub('TEE:', ''), kind)
+        model.commit_operation
+        if err
+          UI.messagebox(err)
+        else
+          Sketchup.status_text = "#{BACKING[kind].split(' (').first} is in behind the #{slot.id.sub('TEE:', '')} partition."
         end
         Dialogs.refresh_yard
         Dialogs.refresh_frame
@@ -305,42 +409,98 @@ module DMACC
         slot.expected['role']
       end
 
+      HDR_PICK = Framing::HDR_PICK
+      HDR_FLAT = Framing::HDR_FLAT
+      HDR_RFI = Framing::HDR_RFI
+
+      def header_choices
+        Framing.header_choices
+      end
+
+      def header_value(choice)
+        Framing.header_from_choice(choice)
+      end
+
+      def tape_end(p)
+        Framing.from_end?(p) ? 'the layout end (tape hooked on the far end of the wall)' : 'wall start (tape hooked on the arrow end)'
+      end
+
+      # Two pop-ups: what it is, then what the plans say about it (doors have no head height).
       def opening_popup(g, center = nil)
         p = Builder.params_of(g)
-        prompts = ['Centerline from wall start (tape hooked on the arrow end)', 'Mark (from the plans)', 'Type',
-                   'Rough opening width', 'Rough opening height (window: sill to header / door: subfloor to header)',
-                   'Head height - bottom of header from subfloor (windows)', 'Header (per plans)']
-        vals = [center ? Framing.fmt_len(center) : '', '', 'Window', '', '', @last['head'] || '82 1/2', 'Not shown']
-        lists = ['', '', 'Window|Door', '', '', '', (['Not shown'] + Framing::SIZES).join('|')]
         title = "Lay out an opening - #{p['id']}"
+        v1 = [center ? Framing.fmt_len(Framing.layout_dist(p, center)) : '', '', @last['otype'] || 'Window']
         loop do
-          res = UI.inputbox(prompts, vals, lists, title)
-          return unless res
+          r1 = UI.inputbox(["Centerline from #{tape_end(p)}", 'Mark (from the plans)', 'Type'], v1, ['', '', 'Window|Door'], title)
+          return unless r1
+          c = Framing.parse_len(r1[0])
+          mark = r1[1].strip.upcase
           errs = []
-          center = Framing.parse_len(res[0])
-          res = res[1..]
-          w = Framing.parse_len(res[2])
-          h = Framing.parse_len(res[3])
-          head = res[1] == 'Window' ? Framing.parse_len(res[4]) : h
-          errs << "Couldn't read the centerline distance." unless center && center > 0
-          errs << 'Enter the mark from the plans (W1, D2...).' if res[0].strip.empty?
-          errs << "Couldn't read the RO width." unless w && w > 0
-          errs << "Couldn't read the RO height." unless h && h > 0
-          errs << "Couldn't read the head height." if res[1] == 'Window' && head.nil?
-          mark = res[0].strip.upcase
+          errs << "Couldn't read the centerline distance." unless c && c > 0 && c < p['length'].to_f
+          errs << 'Enter the mark from the plans (W1, D2...).' if mark.empty?
           used = Builder.all_walls.flat_map { |x| Builder.params_of(x)['openings'].map { |o| o['mark'] } }
           errs << "#{mark} is already used." if used.include?(mark)
+          unless errs.empty?
+            UI.messagebox("Fix these:\n\n" + errs.join("\n"))
+            v1 = r1
+            next
+          end
+          type = r1[2]
+          @last['otype'] = type
+          center = Framing.from_end?(p) ? p['length'].to_f - c : c
+          return if opening_details(g, p, mark, type, center, title) != :back
+          v1 = r1
+        end
+      end
+
+      def opening_details(g, p, mark, type, center, title)
+        win = type == 'Window'
+        dflt_hdr = !p['bearing'] && !win ? HDR_FLAT : HDR_PICK
+        prompts = ['Rough opening width',
+                   win ? 'Rough opening height (sill to header)' : 'Rough opening height (subfloor to header)']
+        vals = ['', '']
+        lists = ['', '']
+        if win
+          prompts << 'Head height - bottom of header from subfloor'
+          vals << (@last['head'] || '82 1/2')
+          lists << ''
+        end
+        prompts << 'Header (from the plans / general notes)'
+        vals << dflt_hdr
+        lists << header_choices.join('|')
+        loop do
+          res = UI.inputbox(prompts, vals, lists, "#{mark} (#{type}) - #{title}")
+          return :back unless res
+          w = Framing.parse_len(res[0])
+          h = Framing.parse_len(res[1])
+          head = win ? Framing.parse_len(res[2]) : h
+          hdr = header_value(res.last)
+          errs = []
+          errs << "Couldn't read the RO width." unless w && w > 0
+          errs << "Couldn't read the RO height." unless h && h > 0
+          errs << "Couldn't read the head height." if win && head.nil?
+          errs << "Pick the header size from the plans or general notes. If it isn't called out, don't assume - pick \"#{HDR_RFI}\"." unless hdr
           if errs.empty?
-            op = { 'mark' => mark, 'type' => res[1], 'x' => center - w / 2.0, 'width' => w,
-                   'header' => res[5] }.merge(Framing.opening_from_ro(res[1], h, head))
-            @last['head'] = res[4] if res[1] == 'Window'
+            op = { 'mark' => mark, 'type' => type, 'x' => center - w / 2.0, 'width' => w,
+                   'header' => hdr }.merge(Framing.opening_from_ro(type, h, head))
+            @last['head'] = res[2] if win
             test = p.merge('openings' => p['openings'] + [op])
             errs = Framing.validate(test, Project.header_table)
           end
           unless errs.empty?
             UI.messagebox("Fix these:\n\n" + errs.join("\n"))
-            vals = [center ? Framing.fmt_len(center) : ''] + res
+            vals = res
             next
+          end
+          if hdr == Framing::RFI
+            q = UI.inputbox(['Your question (RFI)'],
+                            ["The header size for #{mark} (#{Framing.fmt_len(w)} RO, #{p['id']}) isn't on the plans or in the general notes. What header should be used?"],
+                            [''], "Request for Information - #{mark}")
+            unless q
+              vals = res
+              next
+            end
+            op['rfi'] = Project.submit_rfi(p['id'], mark, q[0].to_s.strip)
           end
           model = Sketchup.active_model
           model.start_operation('Add Opening', true)
@@ -349,11 +509,13 @@ module DMACC
           Builder.set_params(g, p)
           Builder.rebuild(g)
           model.commit_operation
-          more = UI.messagebox("#{mark} is laid out.\n\nAnother opening in #{p['id']}?", MB_YESNO)
+          held = op['rfi'] ? "RFI ##{op['rfi']} is submitted. #{mark} is on hold until the answer comes back - " \
+                             "keep working on other openings and walls in the meantime.\n\n" : ''
+          more = UI.messagebox("#{mark} is laid out.\n\n#{held}Another opening in #{p['id']}?", MB_YESNO)
           Builder.set_flag(g, 'openings_done', true) unless more == IDYES
           Dialogs.refresh_yard
           Dialogs.refresh_frame
-          break
+          return :done
         end
       end
 
@@ -365,8 +527,8 @@ module DMACC
         id = p['id']
         case after
         when 'openings'
-          r = UI.messagebox("Plates are set on #{id}.\n\nNext: find your opening centerlines. Hook your tape on the wall start " \
-                            "(the arrow end): hover the bottom plate (outlined in blue) and the tape pulls out with a reading. Type your plan dimension and press Enter " \
+          r = UI.messagebox("Plates are set on #{id}.\n\nNext: find your opening centerlines. Hook your tape on the arrow end " \
+                            "of the wall: hover the bottom plate (outlined in blue) and the tape pulls out with a reading. Type your plan dimension and press Enter " \
                             "(or click) to pencil-mark the centerline, then click the pencil mark to lay out the opening.\n\n" \
                             "Does #{id} have any openings?", MB_YESNO)
           if r != IDYES
@@ -374,12 +536,19 @@ module DMACC
             announce(g, 'openings')
           end
         when 'units'
-          UI.messagebox("Openings are laid out on #{id}.\n\nNext: build each opening unit. Kings first, then jacks " \
-                        "(nailed to the kings), the header, the sill, then cripples and header blocks. Click each piece's spot on the wall.")
+          UI.messagebox("Openings are laid out on #{id}.\n\nNext: frame each opening. Kings first, then click a king and mark the " \
+                        'header height on it - your jacks run from the top of the bottom plate up to that mark. Then the jacks, the header ' \
+                        "and the sill. Cripples and header blocks come later - they go on your stud layout.")
         when 'commons'
+          tees = (p['tee_need'] || []).map { |t| t['id'] }
           UI.messagebox("#{id}: next, the studs. Click each end of the wall and choose its corner assembly - a single stud if this " \
                         'wall butts into another, an L-corner post if another wall butts into this end. Then pick the stud spacing ' \
-                        '(16, 19.2 or 24" O.C.) and the studs lay out and nail themselves.')
+                        "(16, 19.2 or 24\" O.C.) - the layout pulls from the arrow end and the studs nail themselves." +
+                        (tees.empty? ? '' : "\n\n#{tees.join(', ')} tee#{tees.size == 1 ? 's' : ''} into this wall - click each tee spot " \
+                                             'to put in partition backing (ladder blocking or a 3-stud channel).'))
+        when 'cripples'
+          UI.messagebox("#{id}: studs are in.\n\nNext: cripples and header blocks. They land on your stud layout - " \
+                        'click each spot above the headers and under the sills.')
         when 'framed'
           UI.messagebox("#{id} is framed.\n\nRequest an inspection from the Framing panel. Double top plates go on " \
                         'once every wall on this level is framed and standing.')
@@ -404,16 +573,26 @@ module DMACC
       end
 
       def pull(group, slot)
+        if slot.id == 'TP:2'
+          UI.beep
+          Sketchup.status_text = 'Double top plates come off in Double top plates mode (top view), one piece at a time.'
+          return
+        end
         model = Sketchup.active_model
         model.start_operation('Pull Piece', true)
-        piece = Builder.remove_piece(group, slot.id)
-        if piece
+        pieces = slot.kind == :backing ? Builder.remove_backing(group, slot.id) : [Builder.remove_piece(group, slot.id)].compact
+        unless pieces.empty?
           Yard.change do |y|
-            y['offcuts'] << { 'id' => YardLogic.new_id(y, 'O'), 'size' => piece['size'], 'length' => piece['length'].to_f }
+            pieces.each do |piece|
+              y['offcuts'] << { 'id' => YardLogic.new_id(y, 'O'), 'size' => piece['size'], 'length' => piece['length'].to_f }
+            end
           end
         end
         model.commit_operation
-        Sketchup.status_text = piece ? "Pulled #{desc(piece)} - it went on the offcut pile. Click the spot to nail a new one." : 'Nothing there.'
+        Sketchup.status_text = if pieces.empty? then 'Nothing there.'
+                               elsif pieces.size > 1 then "Pulled the #{slot.label} (#{pieces.size} pieces) - they went on the offcut pile."
+                               else "Pulled #{desc(pieces.first)} - it went on the offcut pile. Click the spot to nail a new one."
+                               end
         Dialogs.refresh_yard
         Dialogs.refresh_frame
         Sketchup.active_model.active_view.invalidate
@@ -450,12 +629,13 @@ module DMACC
           d = Framing.depth(p)
           z = Framing::T
           tr = g.transformation
-          # the tape: hooked on the wall start, pulled out along the front of the plate
-          tape = [[0, -0.5, z + 0.1], [x, -0.5, z + 0.1]].map { |c| Geom::Point3d.new(*c).transform(tr) }
+          # the tape: hooked on the layout end (arrow), pulled out along the front of the plate
+          x0 = Framing.from_end?(p) ? p['length'].to_f : 0.0
+          tape = [[x0, -0.5, z + 0.1], [x, -0.5, z + 0.1]].map { |c| Geom::Point3d.new(*c).transform(tr) }
           view.line_width = 6
           view.drawing_color = Sketchup::Color.new(240, 200, 0)
           view.draw(GL_LINES, tape)
-          hook = [[0, -0.5, z + 0.1], [0, 1.5, z + 0.1]].map { |c| Geom::Point3d.new(*c).transform(tr) }
+          hook = [[x0, -0.5, z + 0.1], [x0, 1.5, z + 0.1]].map { |c| Geom::Point3d.new(*c).transform(tr) }
           view.line_width = 4
           view.drawing_color = 'black'
           view.draw(GL_LINES, hook)
@@ -463,8 +643,9 @@ module DMACC
           view.line_width = 3
           view.drawing_color = snapped ? 'magenta' : 'blue'
           view.draw(GL_LINES, pts)
-          view.draw_text(view.screen_coords(tape[1]), "  #{Framing.fmt_len(reading(x))}", size: 14, bold: true) rescue
-            view.draw_text(view.screen_coords(tape[1]), "  #{Framing.fmt_len(reading(x))}")
+          rd = Framing.fmt_len(reading(Framing.layout_dist(p, x)))
+          view.draw_text(view.screen_coords(tape[1]), "  #{rd}", size: 14, bold: true) rescue
+            view.draw_text(view.screen_coords(tape[1]), "  #{rd}")
           txt = if Builder.stage(p) == 'openings'
                   snapped ? 'Click: opening centered on this mark' : 'Click to pencil-mark here (or type a reading + Enter)'
                 else
@@ -503,8 +684,12 @@ module DMACC
           when 'corners' then "#{p['id']}: set the corners first - click the Corners tool and decide which walls run through."
           when 'plates' then "#{p['id']}: cut and set the plates - click the bottom plate spot, then the top plate."
           when 'openings' then "#{p['id']}: pull the tape along the bottom plate (blue). Type your plan dimension + Enter (or click) for a pencil mark, then click the mark to lay out the opening."
-          when 'units' then "#{p['id']}: build the opening units. Next: #{nxt.join(', ')}."
-          when 'commons' then "#{p['id']}: click each end of the wall to choose its corner assembly, then pick the stud spacing - the studs lay out and nail themselves."
+          when 'units' then "#{p['id']}: frame the openings (kings, header mark on the kings, jacks, header, sill). Next: #{nxt.join(', ')}."
+          when 'commons'
+            if p['oc'] then "#{p['id']}: click each tee spot to put in partition backing (ladder blocking or a 3-stud channel)."
+            else "#{p['id']}: click each end of the wall to choose its corner assembly, then pick the stud spacing - the studs lay out and nail themselves."
+            end
+          when 'cripples' then "#{p['id']}: cripples and header blocks, on your stud layout. Next: #{nxt.join(', ')}."
           else "#{p['id']} is framed. Request an inspection from the Framing panel."
           end
       end

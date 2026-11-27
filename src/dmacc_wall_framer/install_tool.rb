@@ -77,7 +77,7 @@ module DMACC
         @dtp = nil
         if @mode == :dtp
           hits = Builder.all_walls.map { |g| top_hit(g, ray) }.compact
-          @dtp = hits.min_by(&:last)
+          @dtp = hits.min_by { |h| h[1] }
           focus(Builder.params_of(@dtp[0])['id']) if @dtp
           return
         end
@@ -123,7 +123,7 @@ module DMACC
         ly = o.y + v.y * t
         d = Framing.depth(p)
         return nil if lx < -1 || lx > p['length'].to_f + 1 || ly < -1 || ly > d + 1
-        [g, t]
+        [g, t, lx]
       end
 
       # Where on the top of the bottom plate the cursor is, along the wall.
@@ -196,14 +196,18 @@ module DMACC
         g = @dtp[0]
         model = Sketchup.active_model
         model.start_operation('Double Top Plate', true)
-        err = Builder.place_dtp(g)
+        err = Builder.place_dtp(g, @dtp[2])
         model.commit_operation
         id = Builder.params_of(g)['id']
         if err
           UI.beep
           Sketchup.status_text = err
         else
-          Sketchup.status_text = "#{id} double plate on (##{Builder.dtp_order.index(id).to_i + 1}). Right-click a plate to take it off."
+          sp = Builder.dtp_piece_at(g, @dtp[2])
+          left = Builder.dtp_free(g).size
+          Sketchup.status_text = "#{id} double plate piece on (##{sp ? sp['n'] : '?'})." +
+                                 (left.positive? ? " #{left} more piece#{left == 1 ? '' : 's'} to go on #{id}." : '') +
+                                 ' Right-click a piece to take it off.'
         end
         Dialogs.refresh_yard
         Dialogs.refresh_frame
@@ -352,13 +356,14 @@ module DMACC
         pick(view, x, y) if view && x
         if @mode == :dtp && @dtp
           g = @dtp[0]
-          if (Builder.params_of(g)['entries'] || {})['TP:2']
-            menu.add_item("Take off #{Builder.params_of(g)['id']} double plate") do
+          if (sp = Builder.dtp_piece_at(g, @dtp[2]))
+            menu.add_item("Take off #{Builder.params_of(g)['id']} double plate piece ##{sp['n']}") do
               m = Sketchup.active_model
               m.start_operation('Remove Double Plate', true)
-              Builder.remove_dtp(g)
+              Builder.remove_dtp(g, @dtp[2])
               m.commit_operation
               Dialogs.refresh_yard
+              Dialogs.refresh_frame
             end
           end
           return
@@ -367,6 +372,7 @@ module DMACC
         g, slot, p = @target
         e = (p['entries'] || {})[slot.id]
         return unless Inspector.complete?(e)
+        return if slot.id == 'TP:2' # double plates come off in Double top plates mode
         menu.add_item("Pull this piece out (#{slot.label})") { pull(g, slot) }
       end
 
@@ -423,25 +429,33 @@ module DMACC
       end
 
       def draw_dtp(view)
-        # order numbers on placed plates
-        Builder.dtp_order.each_with_index do |id, i|
+        level = @dtp ? Builder.params_of(@dtp[0])['level'] : (Project.data['levels'].first || {})['name']
+        spans, = Builder.dtp_spans(level)
+        # order numbers on every piece that's on
+        spans.each do |id, list|
           g = Builder.find_wall(id) or next
           p = Builder.params_of(g)
-          c = Geom::Point3d.new(p['length'].to_f / 2, 0, p['height'].to_f).transform(g.transformation)
-          view.draw_text(view.screen_coords(c), "##{i + 1}")
+          list.each do |sp|
+            c = Geom::Point3d.new((sp['a'] + sp['b']) / 2.0, Framing.depth(p) / 2.0, p['height'].to_f).transform(g.transformation)
+            view.draw_text(view.screen_coords(c), "##{sp['n']}")
+          end
         end
         return unless @dtp
-        g = @dtp[0]
+        g, _t, lx = @dtp
         p = Builder.params_of(g)
         d = Framing.depth(p)
         z = p['height'].to_f
-        placed = (p['entries'] || {})['TP:2']
-        segs = placed ? placed['segs'] : Builder.dtp_preview(g)
-        segs.each do |a, b|
-          draw_box(view, g.transformation, [a, 0, z - Framing::T], [b, d, z], placed ? 'red' : 'orange', 3)
+        # the separate pieces still to go on this wall
+        Builder.dtp_free(g).each do |a, b|
+          draw_box(view, g.transformation, [a, 0, z - Framing::T], [b, d, z], 'yellow', 1)
         end
-        msg = placed ? 'already on (right-click to take off)' : "click to set its double plate (##{Builder.dtp_order.size + 1})"
-        mid = Geom::Point3d.new(p['length'].to_f / 2, d, z).transform(g.transformation)
+        placed = Builder.dtp_piece_at(g, lx)
+        sp = placed || Builder.dtp_preview(g, lx)
+        return unless sp
+        draw_box(view, g.transformation, [sp['a'], 0, z - Framing::T], [sp['b'], d, z], placed ? 'red' : 'orange', 3)
+        nxt = Builder.dtp_seq.count { |r| (w = Builder.find_wall(r['wall'])) && Builder.params_of(w)['level'] == p['level'] } + 1
+        msg = placed ? "piece ##{placed['n']} is on (right-click to take it off)" : "click to set this piece (##{nxt}) - #{Framing.fmt_len(sp['b'] - sp['a'])}"
+        mid = Geom::Point3d.new((sp['a'] + sp['b']) / 2.0, d, z).transform(g.transformation)
         view.draw_text(view.screen_coords(mid), "  #{p['id']}: #{msg}")
       end
 
@@ -503,7 +517,7 @@ module DMACC
           case @mode
           when :layout then 'MARK STUD LAYOUT: click the top of the bottom plate where each common stud centers (snap to Tape Measure guides). Click a mark again to remove it. Tab = next mode.'
           when :opening then 'MARK OPENING: click the opening centerline on the bottom plate (snap to a Tape Measure guide), then fill in the opening. Tab = next mode.'
-          when :dtp then 'DOUBLE TOP PLATES: click walls in the order the double plates go on. The first plate at a corner or tee laps over it. Right-click to take one off.'
+          when :dtp then 'DOUBLE TOP PLATES: click each piece in the order it goes on. The first plate at a corner or tee laps over it - and splits the wall it laps into into separate pieces. Right-click a piece to take it off.'
           else "NAIL: #{saw_text}. Click a layout mark to nail. Type a length to set the stop (full = no cut, o = offcuts first). Tab = next mode."
           end
       end

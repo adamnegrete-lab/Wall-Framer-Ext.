@@ -81,7 +81,8 @@ module DMACC
           end
         end
 
-        STEP_NAMES = ['1. Plates', '2. Lay out openings', '3. Build opening units', '4. Lay out + nail commons', '5. Double top plate'].freeze
+        STEP_NAMES = ['1. Plates', '2. Lay out openings', '3. Frame openings (kings, jacks, header, sill)', '4. Lay out + nail studs (and tee backing)',
+                      '6. Double top plate', '5. Cripples + header blocks (on your layout)'].freeze
 
         def frame_state(group)
           p = Builder.params_of(group)
@@ -104,7 +105,7 @@ module DMACC
               { 'mark' => o['mark'], 'type' => o['type'],
                 'x_text' => len_text(@prefill ? o['x'].to_f + o['width'].to_f / 2.0 : o['x']),
                 'width_text' => len_text(o['width']), 'height_text' => len_text(Framing.ro_height(o)),
-                'sill_text' => o['type'] == 'Window' ? len_text(o['height']) : '', 'header' => o['header'] || 'Not shown' }
+                'sill_text' => o['type'] == 'Window' ? len_text(o['height']) : '', 'header' => Framing.header_choice(o['header']) }
             end,
             'slots' => order.map do |sl|
               e = entries[sl.id]
@@ -120,7 +121,7 @@ module DMACC
                                   'length_text' => e['length'].to_f > 0 ? len_text(e['length']) : '' } }
             end,
             'roles' => Framing::ROLES, 'sizes' => Framing::SIZES,
-            'header_choices' => ['Not shown'] + Framing::SIZES,
+            'header_choices' => Framing.header_choices,
             'inspection' => p['last_inspection'],
             'allow_apply' => s['feedback'] == 'fix'
           }
@@ -143,8 +144,15 @@ module DMACC
             x = parse_required(o['x_text'], "#{name} position", errs)
             head = o['type'] == 'Window' ? parse_required(o['sill_text'], "#{name} head height", errs) : h
             x -= w / 2.0 if x && w && data['pos_mode'] == 'center'
-            { 'mark' => o['mark'].to_s.strip.upcase, 'type' => o['type'], 'x' => x, 'width' => w,
-              'header' => o['header'] }.merge(h && head ? Framing.opening_from_ro(o['type'], h, head) : {})
+            hdr = Framing.header_from_choice(o['header'])
+            errs << "#{name}: pick the header from the plans or general notes - if it isn't called out, submit an RFI." unless hdr
+            mark = o['mark'].to_s.strip.upcase
+            op = { 'mark' => mark, 'type' => o['type'], 'x' => x, 'width' => w,
+                   'header' => hdr }.merge(h && head ? Framing.opening_from_ro(o['type'], h, head) : {})
+            # keep what the RFI / span table said (plies, jacks, RFI number) while the header stays the same
+            old = p['openings'].find { |q| q['mark'] == mark }
+            %w[plies jacks rfi].each { |k| op[k] = old[k] if old && old['header'] == hdr && old.key?(k) }
+            op
           end
           # marks must be unique across the whole model (they match the schedules)
           others = Builder.all_walls.reject { |w| w == g }.flat_map { |w| Builder.params_of(w)['openings'].map { |o| o['mark'] } }
@@ -158,6 +166,11 @@ module DMACC
             return
           end
           operation('Edit Openings') do
+            ops.each do |op|
+              next unless op['header'] == Framing::RFI && !op['rfi']
+              op['rfi'] = Project.submit_rfi(p['id'], op['mark'],
+                                             "The header size for #{op['mark']} (#{len_text(op['width'])} RO) isn't on the plans or in the general notes. What header should be used?")
+            end
             p['openings'] = ops
             p['last_inspection'] = nil
             p['flags'] = []
@@ -240,6 +253,34 @@ module DMACC
           send_frame if @frame&.visible?
         end
 
+        # RFIs that just got their answers: tell the student, and the opening is off hold.
+        def notify_rfis(done)
+          return if done.nil? || done.empty?
+          done.each do |r|
+            UI.messagebox("RFI ##{r['n']} answered (#{r['wall']}, #{r['mark']})\n\nQ: #{r['question']}\n\nA: #{r['answer']}\n\n" \
+                          "#{r['mark']} is off hold - frame it to the answer.")
+          end
+          refresh_frame
+          refresh_yard
+          Sketchup.active_model.active_view.invalidate
+        end
+
+        # For the Framing panel. Students see status only; the instructor sees time left.
+        def rfi_state
+          delay = (Project.settings['rfi_delay_min'] || 32).to_f * 60
+          inst = Project.instructor?
+          (Project.data['rfis'] || []).map do |r|
+            left = [(r['at'].to_i + delay - Time.now.to_i) / 60.0, 0].max.ceil
+            { 'n' => r['n'], 'wall' => r['wall'], 'mark' => r['mark'], 'question' => r['question'],
+              'answer' => r['answer'],
+              'status' => if r['answer'] then 'answered'
+                          elsif inst then (Project.rfi_answer(r) ? "answers itself in #{left} min" : 'no span table row covers it - answer it yourself')
+                          else 'submitted - awaiting response'
+                          end,
+              'can_answer' => inst && !r['answer'] }
+          end
+        end
+
         # ---------------- shop drawing ----------------
 
         def open_shop(group)
@@ -299,6 +340,22 @@ module DMACC
             activate_tool
             @tool.set_mode('dtp')
             top_view
+            send_yard
+          end
+          d.add_action_callback('answer_rfi') do |_c, a|
+            next unless Project.instructor?
+            args = JSON.parse(a)
+            n = args['n'].to_i
+            done = nil
+            operation('Answer RFI') do
+              if args['text'].to_s.strip.empty?
+                done = Project.release_rfis(n)
+              else
+                done = Project.answer_rfi_manual(n, args['header'], args['plies'].to_i, args['text'])
+              end
+            end
+            js(d, 'setStatus', "No span table row covers RFI ##{n} - type an answer with a header size.") if done.empty?
+            notify_rfis(done)
             send_yard
           end
           d.add_action_callback('check_interlock') do |_c, _a|
@@ -386,6 +443,7 @@ module DMACC
           plates = ws.select { |sl| sl.phase == 'plates' }
           unit = ws.select { |sl| sl.phase == 'opening' }
           com = ws.select { |sl| sl.phase == 'commons' }
+          crp = ws.select { |sl| sl.phase == 'cripples' }
           dtp = ws.select { |sl| sl.phase == 'dtp' }
           oc = Builder.open_corners(p)
           steps = [
@@ -394,6 +452,7 @@ module DMACC
             [STEP_NAMES[1], "#{p['openings'].size} opening#{p['openings'].size == 1 ? '' : 's'} laid out", done.call(plates) == plates.size && (p['openings'].any? || done.call(com) > 0)],
             [STEP_NAMES[2], unit.empty? ? 'no openings' : "#{done.call(unit)} of #{unit.size} pieces", unit.all? { |sl| Inspector.slot_done?(sl, e[sl.id]) }],
             [STEP_NAMES[3], "#{(p['marks'] || []).size} marks, #{done.call(com)} of #{com.size} nailed", com.any? && com.all? { |sl| Inspector.slot_done?(sl, e[sl.id]) }],
+            [STEP_NAMES[5], crp.empty? ? 'none on this wall' : "#{done.call(crp)} of #{crp.size} nailed", crp.all? { |sl| Inspector.slot_done?(sl, e[sl.id]) }],
             [STEP_NAMES[4], dtp.empty? ? 'single top plate' : (done.call(dtp) == dtp.size ? 'on' : 'after every wall stands (building step below)'), dtp.all? { |sl| Inspector.slot_done?(sl, e[sl.id]) }]
           ]
           { 'id' => p['id'], 'type' => p['type'], 'level' => p['level'], 'framed' => framed, 'total' => slots.size,
@@ -411,6 +470,7 @@ module DMACC
                'mode' => (@tool&.mode || :nail).to_s,
                'guided' => !!Project.settings['guided'],
                'building' => building_state,
+               'rfis' => rfi_state,
                'stock' => y['stock'], 'cut_text' => y['cut'] ? len_text(y['cut']) : '',
                'use_offcuts' => !!y['use_offcuts'],
                'hand' => h && fmt.call(h),
@@ -459,6 +519,8 @@ module DMACC
                'levels' => dat['levels'].map { |l| { 'name' => l['name'], 'elev_text' => len_text(l['elev']) } },
                'wall_types' => dat['wall_types'].map { |t| t.merge('height_text' => len_text(t['height'])) },
                'header_table' => dat['header_table'].map { |w, s| { 'width_text' => w.to_f >= 9999 ? 'any' : len_text(w), 'size' => s } },
+               'span_table' => (dat['span_table'] || []).map { |r| r.merge('span_text' => len_text(r['span'])) },
+               'span_conditions' => dat['span_conditions'].to_s,
                'settings' => dat['settings'],
                'kerf_text' => Framing.fmt_in(dat['settings']['kerf'] || YardLogic::KERF),
                'feedback_levels' => Inspector::LEVELS.to_a,
@@ -510,6 +572,13 @@ module DMACC
             end
             errs << 'Header table needs at least one row.' if hdr.empty?
           end
+          spans = nil
+          if Project.instructor? && data['span_table']
+            spans = data['span_table'].map do |r|
+              { 'size' => r['size'], 'plies' => r['plies'].to_i, 'jacks' => [r['jacks'].to_i, 1].max,
+                'span' => parse_required(r['span_text'], "Span table #{r['plies']}-#{r['size']} max span", errs) }
+            end
+          end
           unless errs.empty?
             js(@setup, 'showErrors', errs.uniq)
             return
@@ -520,6 +589,8 @@ module DMACC
               d['levels'] = levels.map { |l| { 'name' => l['name'], 'elev' => l['elev'] } }
               d['wall_types'] = types.map { |t| t.reject { |k, _| k == 'orig' } }
               d['header_table'] = hdr.sort_by(&:first) if hdr
+              d['span_table'] = spans.sort_by { |r| [Framing::ACTUAL[r['size']].to_f, r['plies'], r['span'].to_f] } if spans
+              d['span_conditions'] = data['span_conditions'].to_s.strip if Project.instructor? && data.key?('span_conditions')
               if Project.instructor? && data['settings']
                 st = data['settings'].dup
                 k = Framing.parse_len(st.delete('kerf_text'))

@@ -35,7 +35,7 @@ chk(yd.tap { |d| d.fire('ready') }.last('load')['building']['blockers'].size == 
 walls.each { |w| fill_all.(w) }
 yd.fire('dtp'); tool = Dialogs.instance_variable_get(:@tool)
 chk(tool.mode == :dtp, 'top view / double plate mode on')
-top = ->(w) { p = Builder.params_of(w); V.ray = [Geom::Point3d.new(p['length'].to_f / 2, Framing.depth(p) / 2, 500).transform(w.transformation), Geom::Vector3d.new(0, 0, -1)] }
+top = ->(w, x = nil) { p = Builder.params_of(w); V.ray = [Geom::Point3d.new(x || p['length'].to_f / 2, Framing.depth(p) / 2, 500).transform(w.transformation), Geom::Vector3d.new(0, 0, -1)] }
 id = ->(n) { walls.find { |w| Builder.params_of(w)['id'] == n } }
 # wrong order first: S (through) before E
 top.(id.('W-101')); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
@@ -48,8 +48,21 @@ chk(b['results'].any? { |r| r['text'].include?("W-102 / W-101 corner: doesn't la
   top.(w); tool.onMouseMove(0,0,0,V)
   menu = Struct.new(:items) { def add_item(t, &b) = items << [t, b] }.new([]); tool.getMenu(menu); menu.items.first[1].call
 end
-chk(Builder.dtp_order.empty?, 'took both off')
-%w[W-102 W-104 W-105 W-101 W-103].each { |n| top.(id.(n)); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
+chk(Builder.dtp_order.empty? && Builder.dtp_seq.empty?, 'took both off - no ghost order numbers left')
+%w[W-102 W-104 W-105].each { |n| top.(id.(n)); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
+# the closet wall lapped into S: S is now separate pieces, set one at a time
+free = Builder.dtp_free(id.('W-101'))
+chk(free == [[5.5, 135.0], [138.5, 186.5]], "S splits into pieces at the lapped tee: #{free}")
+top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
+chk(Builder.dtp_free(id.('W-101')).size == 1 && !Builder.params_of(id.('W-101'))['entries']['TP:2']['full'], 'one S piece on, one to go')
+# right-click takes off just that piece
+top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V)
+menu = Struct.new(:items) { def add_item(t, &b) = items << [t, b] }.new([]); tool.getMenu(menu)
+chk(menu.items.first && menu.items.first[0].include?('piece #4'), "right-click names the piece: #{menu.items.map(&:first)}")
+menu.items.first[1].call
+chk(Builder.dtp_free(id.('W-101')).size == 2, 'piece came off')
+[60, 160].each { |x| top.(id.('W-101'), x); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
+Builder.dtp_free(id.('W-103')).each { |a, b| top.(id.('W-103'), (a + b) / 2); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
 yd.fire('check_interlock'); b = yd.last('load')['building']
 chk(b['ok'] == 6 && b['joints'] == 6, "right order: #{b['ok']}/#{b['joints']} interlocked")
 s = Builder.params_of(id.('W-101'))['entries']['TP:2']['segs']

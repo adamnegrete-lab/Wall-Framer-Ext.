@@ -41,8 +41,8 @@ module DMACC
           #{wall['top_plates'].to_i == 2 ? 'double' : 'single'} top plate | viewed from the framing side, wall start on the LEFT</div>
           #{svg(wall, slots, opts)}
           #{legend(opts)}
-          <h2>Plate layout - tape hooked on the wall start</h2>
-          #{tape(slots, opts)}
+          <h2>Plate layout - tape hooked on the #{Framing.from_end?(wall) ? 'wall end (layout pulls from the right)' : 'wall start'}</h2>
+          #{tape(slots, opts, wall)}
           #{openings(wall, table)}
           #{opts['cutlist'] ? cut_list(wall, slots, opts) : '<h2>Cut list</h2><p>Not provided for this assignment - work out every cut from the plans and this layout.</p>'}
           </body></html>
@@ -125,12 +125,16 @@ module DMACC
         '<p class="note">Layout marks: X = common stud, K = king, J = jack (trimmer), C = cripple, H = header, S = rough sill.</p>'
       end
 
-      def tape(slots, opts)
-        marks = slots.select { |sl| sl.kind == :vertical }.group_by(&:x).sort_by(&:first).map do |x, group|
+      def tape(slots, opts, wall = {})
+        fe = Framing.from_end?(wall)
+        # from the end, the near edge of each stud is its RIGHT edge
+        dist = ->(x) { fe ? wall['length'].to_f - x - Framing::T : x }
+        marks = slots.select { |sl| sl.kind == :vertical }.group_by(&:x).sort_by { |x, _| dist.call(x) }.map do |x, group|
           l = opts['letters'] ? " #{group.map { |g| LETTERS[g.expected['role']] }.uniq.join('/')}" : ''
-          "<li>#{h(Framing.fmt_len(x))}#{h(l)}</li>"
+          "<li>#{h(Framing.fmt_len(dist.call(x)))}#{h(l)}</li>"
         end
-        %(<p class="note">Distance to the LEFT edge of each stud, measured from the wall start.</p><ol class="cols">#{marks.join}</ol>)
+        edge = fe ? 'RIGHT edge of each stud, measured from the wall end' : 'LEFT edge of each stud, measured from the wall start'
+        %(<p class="note">Distance to the #{edge}.</p><ol class="cols">#{marks.join}</ol>)
       end
 
       def openings(wall, table)

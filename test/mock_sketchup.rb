@@ -148,7 +148,7 @@ end
 # ---- additions for the draw tool ----
 X_AXIS = Geom::Vector3d.new(1, 0, 0); Y_AXIS = Geom::Vector3d.new(0, 1, 0)
 VK_SHIFT = 16
-GL_LINES = 1; GL_LINE_LOOP = 2
+GL_LINES = 1; GL_LINE_LOOP = 2; GL_LINE_STRIP = 3
 module Geom
   class Vector3d
     def clone = Vector3d.new(x, y, z)

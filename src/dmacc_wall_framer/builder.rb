@@ -31,6 +31,8 @@ module DMACC
           break if m.active_path.nil? || m.active_path.empty?
           m.close_active
         end
+        # A locked wall that's selected draws red - framing tools start with nothing selected
+        m.selection.clear if m.selection.respond_to?(:clear)
       rescue StandardError
         nil
       end
@@ -130,13 +132,31 @@ module DMACC
 
       # nil = can be framed now; otherwise the job-site reason it can't.
       def gate_reason(params, slot, slots = nil)
+        # An opening waiting on an RFI is on hold - nothing in it gets framed yet
+        if slot.opening && (op = params['openings'].find { |o| o['mark'] == slot.opening }) && op['header'] == Framing::RFI
+          return "#{slot.opening} is on hold - waiting on the answer to RFI ##{op['rfi']} (header size). Frame another opening or wall in the meantime."
+        end
         return nil unless Project.settings['jobsite_order']
         if slot.id == 'TP:2'
           return 'Double top plates go on after every wall stands - use Double top plates (top view) in the Framing panel.'
         end
         slots ||= work_slots(params)
         by = slots.to_h { |s| [s.id, s] }
-        Inspector.gate(slot, params['entries'] || {}, by)
+        e = params['entries'] || {}
+        if slot.phase == 'cripples' && slots.any? { |s| s.phase == 'commons' && !Inspector.slot_done?(s, e[s.id]) }
+          return 'Lay out and frame the studs first - cripples and header blocks follow your stud layout.'
+        end
+        if slot.kind == :backing && !params['oc']
+          return 'Lay out and frame the studs first - the backing goes in with the studs.'
+        end
+        if Project.settings['guided'] && slot.expected['role'] == 'Jack Stud' &&
+           !(params['hdr_marks'] || {})[slot.opening] && slots.any? { |s| s.opening == slot.opening && s.expected['role'] == 'King Stud' }
+          kings = slots.select { |s| s.opening == slot.opening && s.expected['role'] == 'King Stud' }
+          if kings.all? { |k| Inspector.slot_done?(k, e[k.id]) }
+            return "Mark the header height on the #{slot.opening} kings first - click a king."
+          end
+        end
+        Inspector.gate(slot, e, by)
       end
 
       # ---------- plan corners (runs through / butts) ----------
@@ -208,7 +228,7 @@ module DMACC
             %w[marks pencil corners oc last_inspection].each { |k| p.delete(k) }
             p['entries'] = {}
             p['flags'] = []
-            Project.update { |d| d['dtp_order'] = (d['dtp_order'] || []) - [p['id']] }
+            forget_dtp([p['id']])
           end
           set_params(w, p)
           rebuild(w)
@@ -246,11 +266,82 @@ module DMACC
               side = Joints.local(sh, mid)[1] > sh['depth'] / 2.0 ? 'in' : 'out'
               need[end_name] = { 'type' => 'L', 'side' => side, 'by' => j['butt'] }
             end
-            next if p['corner_need'] == need
+            tees = []
+            joints.each do |j|
+              next unless j['through'] == p['id'] && j['kind'] == 'tee'
+              other = shapes.find { |x| x['id'] == j['butt'] }
+              mid = Joints.at(other, j['end'] == 'start' ? 0.0 : other['len'], other['depth'] / 2.0)
+              side = Joints.local(sh, mid)[1] > sh['depth'] / 2.0 ? 'in' : 'out'
+              tees << { 'id' => j['butt'], 'a0' => j['a0'].round(4), 'a1' => j['a1'].round(4), 'side' => side }
+            end
+            next if p['corner_need'] == need && (p['tee_need'] || []) == tees
             p['corner_need'] = need
+            p['tee_need'] = tees
             set_params(w, p)
           end
         end
+      end
+
+      # ---------- partition backing at tees ----------
+
+      # kind: 'ladder' (flat blocks between the studs either side, at the
+      # instructor's spacing) or 'channel' (two studs flanking the partition).
+      def install_tee(group, tee_id, kind)
+        p = params_of(group)
+        slot = work_slots(p).find { |s| s.id == "TEE:#{tee_id}" } or return 'That tee is gone.'
+        why = gate_reason(p, slot)
+        return why if why
+        t = (p['tee_need'] || []).find { |x| x['id'] == tee_id }
+        d = Framing.depth(p)
+        size = p['stud']
+        w = Framing::ACTUAL[size]
+        tt = Framing::T
+        sl = Framing.stud_length(p)
+        a0 = t['a0'].to_f
+        a1 = t['a1'].to_f
+        stud = ->(x) { { 'role' => 'Backing Stud', 'size' => size, 'length' => sl, 'x' => x, 'y' => 0.0, 'z' => tt, 'dx' => tt, 'dy' => d, 'dz' => sl } }
+        geom = []
+        if kind == 'channel'
+          geom << stud.call(a0 - tt) << stud.call(a1)
+        else
+          # studs already in the wall on each side of the partition
+          xs = work_slots(p).select { |s| s.kind == :vertical && s.anchor == :bottom && Inspector.slot_done?(s, (p['entries'] || {})[s.id]) }
+                            .map(&:x)
+          left = xs.select { |x| x + tt <= a0 + 0.01 }.max
+          right = xs.select { |x| x >= a1 - 0.01 }.min
+          if left.nil? || a0 - (left + tt) > 24
+            geom << stud.call(a0 - tt)
+            left = a0 - tt
+          end
+          if right.nil? || right - a1 > 24
+            geom << stud.call(a1)
+            right = a1
+          end
+          x0 = left + tt
+          len = right - x0
+          y = t['side'] == 'out' ? 0.0 : d - tt
+          oc = (Project.settings['ladder_oc'] || 24).to_f
+          z = tt + oc - w / 2.0
+          while z + w < tt + sl - 1
+            geom << { 'role' => 'Ladder Block', 'size' => size, 'length' => len, 'x' => x0, 'y' => y, 'z' => z, 'dx' => len, 'dy' => tt, 'dz' => w }
+            z += oc
+          end
+        end
+        kerf = (Project.settings['kerf'] || YardLogic::KERF).to_f
+        pieces = []
+        geom.each do |g|
+          pc = err = nil
+          Yard.change { |y| y['hand'] = nil; pc, err = YardLogic.supply(y, g['size'], g['length'], kerf); YardLogic.install(y, pc['id']) if pc }
+          return err if err
+          pieces << { 'id' => pc['id'], 'size' => pc['size'], 'length' => pc['length'] }
+        end
+        p = params_of(group)
+        (p['entries'] ||= {})[slot.id] = { 'role' => 'Partition Backing', 'size' => size, 'length' => geom.sum { |g| g['length'] },
+                                           'auto' => true, 'kind' => kind, 'geom' => geom, 'pieces' => pieces }
+        touch(p, slot.id)
+        set_params(group, p)
+        rebuild(group)
+        nil
       end
 
       # Corners chosen + O.C. chosen -> lay out and nail every common, end stud
@@ -260,7 +351,7 @@ module DMACC
         p['marks'] = Framing.auto_marks(p, p['oc'])
         set_params(group, p)
         rebuild(group)
-        work_slots(params_of(group)).select { |s| s.phase == 'commons' }.each do |s|
+        work_slots(params_of(group)).select { |s| s.phase == 'commons' && s.kind != :backing }.each do |s|
           next if Inspector.slot_done?(s, (params_of(group)['entries'] || {})[s.id])
           err = nail_supplied(group, s, s.expected['size'], s.expected['length'])
           return err if err
@@ -273,7 +364,7 @@ module DMACC
         p = params_of(group)
         e = p['entries'] || {}
         pulled = []
-        work_slots(p).select { |s| s.phase == 'commons' }.each do |s|
+        work_slots(p).select { |s| %w[commons cripples].include?(s.phase) }.each do |s|
           next unless e[s.id]
           (e[s.id]['pieces'] || [e[s.id]]).each { |pc| pulled << pc }
           e.delete(s.id)
@@ -291,6 +382,18 @@ module DMACC
         rebuild(group)
       end
 
+      # Pull the stud layout from the other end of the wall (so studs line up
+      # with the wall across the house). Framed studs + cripples come out.
+      def set_layout_from(group, from_end)
+        p = params_of(group)
+        return if Framing.from_end?(p) == from_end
+        reset_commons(group) if p['oc'] || (p['marks'] || []).any?
+        p = params_of(group)
+        if from_end then p['layout_from'] = 'end' else p.delete('layout_from') end
+        set_params(group, p)
+        rebuild(group)
+      end
+
       # ---------- guided stages ----------
 
       # 'plates' | 'openings' | 'units' | 'commons' | 'framed'
@@ -303,6 +406,7 @@ module DMACC
         return 'openings' unless p['openings_done']
         return 'units' unless done.call('opening')
         return 'commons' unless p['oc'] && done.call('commons')
+        return 'cripples' unless done.call('cripples')
         'framed'
       end
 
@@ -313,6 +417,7 @@ module DMACC
         e = p['entries'] || {}
         ws.reject { |s| s.id == 'TP:2' || Inspector.slot_done?(s, e[s.id]) }
           .select { |s| Inspector.gate(s, e, by).nil? }
+          .select { |s| (why = gate_reason(p, s, ws)).nil? || why.include?('Mark the header height') }
       end
 
       # Nail pieces (supplied from the yard) into a slot. Returns error or nil.
@@ -354,14 +459,44 @@ module DMACC
         all_walls.select { |w| params_of(w)['level'] == level && params_of(w)['top_plates'].to_i == 2 }
       end
 
+      # Placing order, one record per piece: { 'wall', 'x', 'len', 'pieces' }.
+      def dtp_seq
+        d = Project.data
+        return d['dtp_seq'] if d['dtp_seq']
+        seq = [] # models from older versions: one record per old segment
+        (d['dtp_order'] || []).each do |id|
+          g = find_wall(id) or next
+          e = (params_of(g)['entries'] || {})['TP:2'] or next
+          (e['segs'] || []).each_with_index do |(a, b), i|
+            seq << { 'wall' => id, 'x' => (a + b) / 2.0, 'len' => b - a, 'pieces' => i.zero? ? (e['pieces'] || []) : [] }
+          end
+        end
+        Project.update { |dd| dd['dtp_seq'] = seq }
+        seq
+      end
+
+      # Wall ids in the order their first double plate piece went on.
       def dtp_order
-        Project.data['dtp_order'] || []
+        dtp_seq.map { |r| r['wall'] }.uniq.select { |id| find_wall(id) }
+      end
+
+      # Walls deleted or reset: their double plate records go too.
+      def forget_dtp(ids)
+        Project.update do |d|
+          d['dtp_order'] = (d['dtp_order'] || []) - ids
+          d['dtp_seq'] = (d['dtp_seq'] || []).reject { |r| ids.include?(r['wall']) }
+        end
       end
 
       def dtp_context(level)
         ws = level_walls(level)
         shapes = ws.map { |w| wall_shape(w) }
         [ws, shapes, Joints.find(shapes)]
+      end
+
+      def dtp_spans(level)
+        _ws, shapes, joints = dtp_context(level)
+        Joints.replay(shapes, joints, dtp_seq)
       end
 
       # Walls on this level that still have work before double plates. [] = ready.
@@ -375,74 +510,129 @@ module DMACC
         end.compact
       end
 
-      # Re-cut every placed double plate on this level for the current order.
+      # Re-cut every double plate piece on this level for the current order and
+      # write them onto the walls. Pieces that changed length get re-cut from the yard.
       def recompute_dtps(level)
         ws, shapes, joints = dtp_context(level)
-        order = dtp_order
+        seq = dtp_seq.map(&:dup)
+        spans, bad = Joints.replay(shapes, joints, seq)
+        kerf = (Project.settings['kerf'] || YardLogic::KERF).to_f
+        # records that no longer fit: their boards go back
+        unless bad.empty?
+          Yard.change { |y| bad.each { |i| (seq[i]['pieces'] || []).each { |pc| YardLogic.return_piece(y, pc) } }; y['hand'] = nil }
+          seq = seq.each_with_index.reject { |_r, i| bad.include?(i) }.map(&:first)
+          spans, = Joints.replay(shapes, joints, seq)
+        end
+        spans.each_value do |list|
+          list.each do |sp|
+            rec = seq[sp['i']]
+            len = sp['b'] - sp['a']
+            next if rec['len'] && (rec['len'].to_f - len).abs < 0.01
+            pcs = err = nil
+            Yard.change do |y|
+              (rec['pieces'] || []).each { |pc| YardLogic.return_piece(y, pc) }
+              y['hand'] = nil
+              pcs, err = YardLogic.pull_for(y, ws.map { |w| params_of(w) }.find { |p| p['id'] == rec['wall'] }['stud'], len, kerf)
+              pcs.each { |pc| YardLogic.install(y, pc['id']) } unless err
+            end
+            rec['pieces'] = err ? [] : pcs.map { |pc| { 'id' => pc['id'], 'size' => pc['size'], 'length' => pc['length'] } }
+            rec['len'] = len
+          end
+        end
+        Project.update { |d| d['dtp_seq'] = seq }
         ws.each do |w|
           p = params_of(w)
-          e = (p['entries'] || {})['TP:2']
-          next unless e && e['auto']
+          list = (spans[p['id']] || []).sort_by { |sp| sp['a'] }
           sh = shapes.find { |x| x['id'] == p['id'] }
-          segs = Joints.segments(sh, shapes, joints, order)
-          e['segs'] = segs
-          e['length'] = segs.sum { |a, b| b - a }
-          p['entries']['TP:2'] = e
+          old = (p['entries'] || {})['TP:2']
+          if list.empty?
+            next unless old
+            p['entries'].delete('TP:2')
+          else
+            (p['entries'] ||= {})['TP:2'] = {
+              'role' => 'Double Top Plate', 'size' => p['stud'], 'auto' => true,
+              'length' => list.sum { |sp| sp['b'] - sp['a'] },
+              'segs' => list.map { |sp| [sp['a'], sp['b']] }, 'nums' => list.map { |sp| sp['n'] },
+              'full' => Joints.free(sh, joints, spans).empty?,
+              'pieces' => list.flat_map { |sp| seq[sp['i']]['pieces'] || [] }
+            }
+          end
           set_params(w, p)
           rebuild(w)
         end
       end
 
-      # Preview of the segments if this wall's double plate went on next.
-      def dtp_preview(g)
+      # The piece a click at local x would set on this wall, or nil.
+      def dtp_preview(g, x = nil)
         p = params_of(g)
         _ws, shapes, joints = dtp_context(p['level'])
-        sh = shapes.find { |x| x['id'] == p['id'] }
-        Joints.segments(sh, shapes, joints, dtp_order - [p['id']] + [p['id']])
+        spans, = Joints.replay(shapes, joints, dtp_seq)
+        sh = shapes.find { |s| s['id'] == p['id'] } or return nil
+        Joints.region(sh, shapes.to_h { |s| [s['id'], s] }, joints, spans, (x || p['length'].to_f / 2).to_f)
       end
 
-      # Returns error or nil
-      def place_dtp(g)
+      # Open pieces left on a wall: [[a, b], ...]
+      def dtp_free(g)
+        p = params_of(g)
+        _ws, shapes, joints = dtp_context(p['level'])
+        spans, = Joints.replay(shapes, joints, dtp_seq)
+        sh = shapes.find { |s| s['id'] == p['id'] } or return []
+        Joints.free(sh, joints, spans)
+      end
+
+      # The placed piece under local x on this wall: { 'a','b','n','i' } or nil.
+      def dtp_piece_at(g, x)
+        p = params_of(g)
+        spans, = dtp_spans(p['level'])
+        (spans[p['id']] || []).find { |sp| x >= sp['a'] - 0.5 && x <= sp['b'] + 0.5 }
+      end
+
+      # Set the double plate piece under local x. Returns error or nil.
+      def place_dtp(g, x = nil)
         p = params_of(g)
         return "#{p['id']} has a single top plate." unless p['top_plates'].to_i == 2
-        e = p['entries'] || {}
-        return "#{p['id']} already has its double plate - right-click to take it off." if e['TP:2']
         blockers = dtp_blockers(p['level'])
         return "Stand every wall first. Still framing: #{blockers.join(', ')}." unless blockers.empty?
-        segs = dtp_preview(g)
+        x = (x || p['length'].to_f / 2).to_f
+        sp = dtp_preview(g, x)
+        return "That part of #{p['id']} already has its double plate - right-click a piece to take it off." unless sp
+        len = sp['b'] - sp['a']
         kerf = (Project.settings['kerf'] || YardLogic::KERF).to_f
         pieces = err = nil
         Yard.change do |y|
-          pieces, err = YardLogic.pull_for(y, p['stud'], segs.sum { |a, b| b - a }, kerf)
+          y['hand'] = nil
+          pieces, err = YardLogic.pull_for(y, p['stud'], len, kerf)
           pieces.each { |pc| YardLogic.install(y, pc['id']) } unless err
         end
         return err if err
-        Project.update { |d| d['dtp_order'] = (d['dtp_order'] || []) - [p['id']] + [p['id']] }
-        p = params_of(g)
-        (p['entries'] ||= {})['TP:2'] = { 'role' => 'Double Top Plate', 'size' => p['stud'], 'length' => segs.sum { |a, b| b - a },
-                                          'segs' => segs, 'auto' => true,
-                                          'pieces' => pieces.map { |pc| { 'id' => pc['id'], 'size' => pc['size'], 'length' => pc['length'] } } }
-        set_params(g, p)
+        rec = { 'wall' => p['id'], 'x' => x, 'len' => len,
+                'pieces' => pieces.map { |pc| { 'id' => pc['id'], 'size' => pc['size'], 'length' => pc['length'] } } }
+        seq = dtp_seq
+        Project.update { |d| d['dtp_seq'] = seq + [rec]; d['dtp_order'] = ((d['dtp_order'] || []) - [p['id']]) + [p['id']] }
         recompute_dtps(p['level'])
         nil
       end
 
-      def remove_dtp(g)
+      # Take off the piece under local x (whole wall's plate when x is nil). Returns its record or nil.
+      def remove_dtp(g, x = nil)
         p = params_of(g)
-        e = (p['entries'] || {})['TP:2']
-        return nil unless e
-        p['entries'].delete('TP:2')
-        set_params(g, p)
-        Yard.change { |y| (e['pieces'] || []).each { |pc| YardLogic.return_piece(y, pc) }; y['hand'] = nil }
-        Project.update { |d| d['dtp_order'] = (d['dtp_order'] || []) - [p['id']] }
-        rebuild(g)
+        spans, = dtp_spans(p['level'])
+        list = spans[p['id']] || []
+        hit = x ? list.select { |sp| x >= sp['a'] - 0.5 && x <= sp['b'] + 0.5 } : list
+        return nil if hit.empty?
+        seq = dtp_seq
+        idx = hit.map { |sp| sp['i'] }
+        recs = idx.map { |i| seq[i] }
+        Yard.change { |y| recs.each { |r| (r['pieces'] || []).each { |pc| YardLogic.return_piece(y, pc) } }; y['hand'] = nil }
+        Project.update { |d| d['dtp_seq'] = seq.each_with_index.reject { |_r, i| idx.include?(i) }.map(&:first) }
         recompute_dtps(p['level'])
-        e
+        recs.first.merge('n' => hit.first['n'])
       end
 
       def interlock(level)
         _ws, shapes, joints = dtp_context(level)
-        Joints.check(shapes, joints, dtp_order)
+        spans, = Joints.replay(shapes, joints, dtp_seq)
+        Joints.check_spans(shapes, joints, spans)
       end
 
       # Expected members for the whole model, with ideal interlocked double plates.
@@ -567,6 +757,18 @@ module DMACC
         piece
       end
 
+      # Partition backing comes out as a set (every block/stud). Returns the pieces.
+      def remove_backing(group, slot_id)
+        p = params_of(group)
+        e = (p['entries'] || {})[slot_id]
+        return [] unless e
+        p['entries'].delete(slot_id)
+        touch(p, slot_id)
+        set_params(group, p)
+        rebuild(group)
+        e['pieces'] || []
+      end
+
       # ---------- corner trims (chained walls) ----------
 
       # Change length at the END of a wall. Returns error list (empty = done).
@@ -663,6 +865,14 @@ module DMACC
           line.call([cx, 0, z], [cx, d, z])
           t = ents.add_text("#{o['mark']} CL", Geom::Point3d.new(cx, 0, z))
           t.layer = tg if t.respond_to?(:layer=)
+        end
+        # header height marks on the kings (a line across each king's face)
+        (params['hdr_marks'] || {}).each do |mk, zmark|
+          work_slots(params).select { |s| s.opening == mk && s.expected['role'] == 'King Stud' }.each do |k|
+            z = zmark.to_f
+            line.call([k.x - 0.25, -0.02, z], [k.x + Framing::T + 0.25, -0.02, z])
+            line.call([k.x - 0.25, d + 0.02, z], [k.x + Framing::T + 0.25, d + 0.02, z])
+          end
         end
         (params['pencil'] || []).each do |m|
           x = m.to_f
@@ -775,11 +985,12 @@ module DMACC
         inst
       end
 
-      # Small arrow on top of the wall at the start end, pointing down the wall.
+      # Small arrow on top of the wall at the layout end (where the tape hooks), pointing down the wall.
       def add_start_arrow(model, ents, params)
         z = params['height'].to_f + 0.25
         d = Framing.depth(params)
-        pts = [[0, 0, z], [10, d / 2.0, z], [0, d, z]]
+        len = params['length'].to_f
+        pts = Framing.from_end?(params) ? [[len, 0, z], [len - 10, d / 2.0, z], [len, d, z]] : [[0, 0, z], [10, d / 2.0, z], [0, d, z]]
         f = ents.add_face(pts)
         f.reverse! if f.normal.z < 0
         f.material = material(model, 'Framing - Start Arrow', [40, 40, 40])

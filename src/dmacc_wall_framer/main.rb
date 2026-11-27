@@ -155,6 +155,7 @@ module DMACC
           <p>Walls matched: #{res['walls_matched']} of #{res['walls_in_key']}. Inspections requested: #{res['inspections']}. Takeoff checks: #{res['takeoff_checks']}.</p>
           <h2>Differences from the key</h2>#{notes}
           <h2>Double top plate interlock</h2>#{interlock_html}
+          <h2>RFIs</h2>#{rfi_html}
           <h2>Material use</h2>#{yard_html}
           <h2>Inspection history (last 40)</h2><ul>#{log.empty? ? '<li>None</li>' : log}</ul>
           <h2>Takeoff history</h2><ul>#{tk.empty? ? '<li>None</li>' : tk}</ul>
@@ -169,6 +170,16 @@ module DMACC
         return '<p>No joints between walls.</p>' if rows.empty?
         ok = rows.count { |r| r['ok'] }
         "<p>#{ok} of #{rows.size} joints interlocked.</p><ul>" + rows.reject { |r| r['ok'] }.map { |r| "<li>#{h(r['text'])}</li>" }.join + '</ul>'
+      end
+
+      def rfi_html
+        rs = Project.data['rfis'] || []
+        return '<p>None submitted.</p>' if rs.empty?
+        '<ul>' + rs.map do |r|
+          at = Time.at(r['at'].to_i).strftime('%Y-%m-%d %H:%M')
+          "<li>##{r['n']} #{h(r['wall'])} #{h(r['mark'])} (#{at}): #{h(r['question'])}<br>" \
+            "Answer: #{r['answer'] ? h(r['answer']) : 'pending'}</li>"
+        end.join + '</ul>'
       end
 
       def yard_html
@@ -285,13 +296,31 @@ module DMACC
           if UI.messagebox("Delete #{ids.join(', ')}? Its framing goes with it.", MB_YESNO) == IDYES
             Dialogs.operation('Delete Wall') do
               ws.each { |w| w.locked = false; w.erase! }
-              Project.update { |d| d['dtp_order'] = (d['dtp_order'] || []) - ids }
+              Builder.forget_dtp(ids)
               Builder.refresh_corner_needs
             end
           end
         end
       end
       file_loaded(__FILE__)
+    end
+
+    # ---------- RFIs answer themselves (checked once a minute; no timer shown) ----------
+    unless file_loaded?('dmacc_wf_rfi_timer')
+      UI.start_timer(60, true) do
+        begin
+          if Builder.all_walls.any? && (Project.data['rfis'] || []).any? { |r| !r['answer'] }
+            m = Sketchup.active_model
+            m.start_operation('RFI Answered', true, false, true)
+            done = Project.release_rfis
+            m.commit_operation
+            Dialogs.notify_rfis(done)
+          end
+        rescue StandardError => e
+          puts "Wall Framer RFI check: #{e.message}"
+        end
+      end
+      file_loaded('dmacc_wf_rfi_timer')
     end
 
     # ---------- the toolbar: the job-site sequence, left to right ----------

@@ -54,11 +54,51 @@ module DMACC
         row ? row[1] : table.last[1]
       end
 
-      # Header the wall should get: per plans if given, else table minimum.
+      FLAT = '2x4F' # double 2x4 laid flat - interior non-bearing door/window headers
+      RFI = 'RFI'   # header size not on the plans - waiting on an RFI answer
+
+      # Header size the opening calls for. nil = waiting on an RFI.
       def header_for(opening, table = DEFAULT_HEADER_TABLE)
         plan = opening['header']
-        return plan if SIZES.include?(plan)
-        header_min_for(opening['width'].to_f, table)
+        return plan if SIZES.include?(plan) || plan == FLAT
+        return nil if plan == RFI
+        header_min_for(opening['width'].to_f, table) # models from older versions
+      end
+
+      # { 'size','height','plies','flat' } for an opening's header in a wall this deep.
+      def header_dims(o, d, table = DEFAULT_HEADER_TABLE)
+        h = header_for(o, table)
+        return nil unless h
+        return { 'size' => '2x4', 'height' => 2 * T, 'plies' => 2, 'flat' => true } if h == FLAT
+        { 'size' => h, 'height' => ACTUAL[h], 'plies' => (o['plies'] || (d / T).floor).to_i, 'flat' => false }
+      end
+
+      HDR_PICK = '-- pick from the plans --'
+      HDR_FLAT = '(2) 2x4 flat'
+      HDR_RFI = 'Not on plans - submit RFI'
+
+      # Header choices for pop-ups and the openings form.
+      def header_choices
+        [HDR_PICK, HDR_FLAT] + SIZES.reject { |x| x == '2x4' } + [HDR_RFI]
+      end
+
+      def header_from_choice(c)
+        return FLAT if c == HDR_FLAT
+        return RFI if c == HDR_RFI
+        SIZES.include?(c) ? c : nil
+      end
+
+      def header_choice(h)
+        return HDR_FLAT if h == FLAT
+        return HDR_RFI if h == RFI
+        SIZES.include?(h) ? h : HDR_PICK
+      end
+
+      def header_label(o)
+        h = o['header']
+        return '(2) 2x4 flat' if h == FLAT
+        return 'RFI pending' if h == RFI
+        o['plies'] ? "(#{o['plies']}) #{h}" : h.to_s
       end
 
       # Trade convention: a window's RO height is the opening itself (sill to
@@ -82,6 +122,7 @@ module DMACC
       end
 
       def jack_count(o)
+        return o['jacks'].to_i if o['jacks'].to_i > 0 # from the span table / RFI answer
         o['width'].to_f > 72.0 ? 2 : 1
       end
 
@@ -116,9 +157,9 @@ module DMACC
           errs << "#{name}: width must be more than 0." if o['width'].to_f <= 0
           errs << "#{name}: too close to the wall start - no room for king + jack." if left < T
           errs << "#{name}: too close to the wall end - no room for king + jack." if right > len - T
-          hh = ACTUAL[header_for(o, table)]
-          if o['height'].to_f + hh > stud_top + 1e-3
-            errs << "#{name}: head height + #{header_for(o, table)} header won't fit under the top plate."
+          hd = header_dims(o, depth(w), table)
+          if hd && o['height'].to_f + hd['height'] > stud_top + 1e-3
+            errs << "#{name}: head height + #{header_label(o)} header won't fit under the top plate."
           end
           if o['type'] == 'Window'
             errs << "#{name}: RO height is too tall for that head height - the sill would be at #{fmt_in(o['sill'])}, down at the bottom plate." if o['sill'].to_f < 2 * T + 1
@@ -134,19 +175,31 @@ module DMACC
 
       # ---------------- layout ----------------
 
-      # Left edge of each layout stud measured from wall start (tape hooked on the start).
-      def layout_marks(w)
-        sp = w['spacing'].to_f
+      # Layout can be pulled from either end of the wall ('layout_from' = 'end'),
+      # so walls across the house can share a layout and studs line up.
+      def from_end?(w)
+        w['layout_from'] == 'end'
+      end
+
+      # Distance from the layout end <-> distance from the wall start.
+      def layout_dist(w, x)
+        from_end?(w) ? w['length'].to_f - x.to_f : x.to_f
+      end
+
+      # Left edge of each layout stud (from the wall start), with the tape hooked
+      # on the layout end. sp defaults to the wall type's spacing.
+      def layout_marks(w, sp = nil)
+        sp = (sp || w['spacing']).to_f
         len = w['length'].to_f
         out = []
         k = 1
         loop do
-          x = k * sp - T / 2.0
-          break if x > len - T
-          out << x
+          c = k * sp # stud center, from the layout end
+          break if c > len - T / 2.0
+          out << (from_end?(w) ? len - c - T / 2.0 : c - T / 2.0)
           k += 1
         end
-        out
+        out.sort
       end
 
       # ---------------- slots (the answer) ----------------
@@ -159,7 +212,8 @@ module DMACC
         sl = stud_length(w)
         stud_top = T + sl
         ops = (w['openings'] || []).sort_by { |o| o['x'].to_f }
-        layout = layout_marks(w)
+        layout = layout_marks(w)                     # commons: the plans' spacing
+        clayout = layout_marks(w, w['oc'] || w['spacing']) # cripples follow the layout the crew picked
         out = []
 
         exp = ->(role, sz, l) { { 'role' => role, 'size' => sz, 'length' => r(l) } }
@@ -169,7 +223,8 @@ module DMACC
           out << s
           s
         end
-        where = ->(x) { "#{fmt_len(x)} from wall start" }
+        end_name = from_end?(w) ? 'layout end' : 'wall start'
+        where = ->(x) { "#{fmt_len(layout_dist(w, x))} from #{end_name}" }
         plates = ['BP', 'TP:1']
 
         # Bottom plate: cut full length (door cutouts come out after framing)
@@ -186,23 +241,20 @@ module DMACC
           [o['x'].to_f - (jc + 1) * T, o['x'].to_f + o['width'].to_f + (jc + 1) * T]
         end
 
-        opening_ids = []
+        unit_ids = []
         ops.each do |o|
           ox = o['x'].to_f
           ow = o['width'].to_f
           oh = o['height'].to_f
           mk = o['mark'].to_s
           jc = jack_count(o)
-          hsize = header_for(o, table)
-          hh = ACTUAL[hsize]
+          hd = header_dims(o, d, table)
           hdr_len = ow + 2 * jc * T
           hdr_x = ox - jc * T
-          hdr_top = oh + hh
-          ids = []
 
           kl = vslot.call(ox - (jc + 1) * T, T, :bottom, 'King Stud', sl, "#{mk} left king", mk, plates)
           kr = vslot.call(ox + ow + jc * T, T, :bottom, 'King Stud', sl, "#{mk} right king", mk, plates)
-          ids.push(kl.id, kr.id)
+          unit_ids.push(kl.id, kr.id)
           jacks = []
           prev_l = kl.id
           prev_r = kr.id
@@ -214,63 +266,75 @@ module DMACC
             prev_r = jr.id
             jacks.push(jl.id, jr.id)
           end
-          ids.concat(jacks)
+          unit_ids.concat(jacks)
 
-          plies = (d / T).floor
+          hsize = hd ? hd['size'] : nil
           hdr = Slot.new("HDR:#{mk}", :horizontal, nil, r(hdr_x), r(oh), exp.call('Header', hsize, hdr_len),
-                         "#{mk} header", mk, plies, jacks, 'opening', false)
+                         "#{mk} header", mk, hd ? hd['plies'] : 2, jacks, 'opening', false)
+          hdr.anchor = :flat if hd && hd['flat']
           out << hdr
-          ids << hdr.id
+          unit_ids << hdr.id
 
-          if stud_top - hdr_top > 0.25
-            layout.each do |x|
-              next unless x >= hdr_x - 1e-3 && x + T <= hdr_x + hdr_len + 1e-3
-              c = vslot.call(x, stud_top, :top, 'Cripple Stud', stud_top - hdr_top, "#{mk} header block, #{where.call(x)}", mk, [hdr.id])
-              ids << c.id
-            end
-          end
-
+          sill = nil
           if o['type'] == 'Window'
-            sill_top = o['sill'].to_f
-            sill_bot = sill_top - T
+            sill_bot = o['sill'].to_f - T
             sill = Slot.new("SILL:#{mk}", :horizontal, nil, r(ox), r(sill_bot), exp.call('Rough Sill', size, ow),
                             "#{mk} rough sill", mk, nil, [hdr.id], 'opening', false)
             out << sill
-            ids << sill.id
-            xs = [ox, ox + ow - T]
-            layout.each do |x|
-              next unless x >= ox && x + T <= ox + ow
-              xs << x unless xs.any? { |e| (e - x).abs < T }
-            end
-            xs.sort.each do |x|
-              c = vslot.call(x, T, :bottom, 'Cripple Stud', sill_bot - T, "#{mk} cripple under sill, #{where.call(x)}", mk, [sill.id])
-              ids << c.id
+            unit_ids << sill.id
+          end
+
+          # Cripples + header blocks: after the studs, on the crew's layout
+          if hd && stud_top - (oh + hd['height']) > 0.25
+            clayout.each do |x|
+              next unless x >= hdr_x - 1e-3 && x + T <= hdr_x + hdr_len + 1e-3
+              vslot.call(x, stud_top, :top, 'Cripple Stud', stud_top - oh - hd['height'],
+                         "#{mk} header block, #{where.call(x)}", mk, [hdr.id], 'cripples')
             end
           end
-          opening_ids.concat(ids)
+          next unless sill
+
+          xs = [ox, ox + ow - T]
+          clayout.each do |x|
+            next unless x >= ox && x + T <= ox + ow
+            xs << x unless xs.any? { |e| (e - x).abs < T }
+          end
+          xs.sort.each do |x|
+            vslot.call(x, T, :bottom, 'Cripple Stud', sill_bot - T, "#{mk} cripple under sill, #{where.call(x)}", mk, [sill.id], 'cripples')
+          end
         end
 
-        # End studs + commons: after the plates and every opening unit
-        cdeps = plates + opening_ids
-        ends = []
-        ends << vslot.call(0.0, T, :bottom, 'Common Stud', sl, 'Wall start (end stud)', nil, cdeps, 'commons')
-        ends << vslot.call(len - T, T, :bottom, 'Common Stud', sl, 'Wall end (end stud)', nil, cdeps, 'commons')
-        commons = []
+        # End studs + commons (+ corner posts, tee backing): after every opening unit
+        cdeps = plates + unit_ids
+        vslot.call(0.0, T, :bottom, 'Common Stud', sl, 'Wall start (end stud)', nil, cdeps, 'commons')
+        vslot.call(len - T, T, :bottom, 'Common Stud', sl, 'Wall end (end stud)', nil, cdeps, 'commons')
         layout.each do |x|
           next if x < T || x + T > len - T
           next if blocked.any? { |a, b| x + T > a && x < b }
-          commons << vslot.call(x, T, :bottom, 'Common Stud', sl, "Common stud, #{where.call(x)}", nil, cdeps, 'commons', true)
+          vslot.call(x, T, :bottom, 'Common Stud', sl, "Common stud, #{where.call(x)}", nil, cdeps, 'commons', true)
         end
-        # Corner posts the building needs at this wall's ends (set by Builder from the joints)
-        (w['corner_need'] || {}).each do |end_name, need|
+        (w['corner_need'] || {}).each do |en, need|
           next unless need['type'] == 'L'
-          out << lpost_slot(w, end_name, need['side'], cdeps)
+          out << lpost_slot(w, en, need['side'], cdeps)
         end
+        (w['tee_need'] || []).each { |t| out << tee_slot(w, t, cdeps) }
         # Double top plate goes on last
         all_ids = out.map(&:id) - ['TP:2']
         out.each { |s| s.deps = all_ids if s.id == 'TP:2' }
 
         out.sort_by { |s| [s.kind == :horizontal ? 0 : 1, s.x, s.z] }
+      end
+
+      # Where an interior wall tees in: needs backing (ladder blocking or a
+      # 3-stud channel) so the partition's end stud and drywall have something to nail to.
+      def tee_slot(wall, t, deps)
+        w = DEFAULT_WALL.merge(wall)
+        s = Slot.new("TEE:#{t['id']}", :backing, nil, r(t['a0'].to_f - T), r(T),
+                     { 'role' => 'Partition Backing', 'size' => w['stud'], 'length' => r(t['a1'].to_f - t['a0'].to_f + 2 * T),
+                       'height' => r(stud_length(w)) },
+                     "#{t['id']} tee - partition backing", nil, nil, deps, 'commons', false)
+        s.anchor = t['side'] == 'out' ? :out : :in
+        s
       end
 
       # L-corner post: a stud turned flat behind the end stud, at the face the
@@ -358,6 +422,11 @@ module DMACC
         return [] if len <= 0
 
         case slot.kind
+        when :backing
+          # geometry worked out when the backing went in (ladder or channel)
+          (entry['geom'] || []).map do |g|
+            Member.new(g['role'] || role, g['size'] || size, g['length'].to_f, g['x'], g['y'], g['z'], g['dx'], g['dy'], g['dz'])
+          end
         when :post
           y = slot.anchor == :out ? 0.0 : d - T
           [Member.new(role, size, len, slot.x, y, slot.z, ACTUAL[size] || d, T, len)]
@@ -373,7 +442,11 @@ module DMACC
             plies.each_with_index.map do |pc, i|
               pl = pc['length'].to_f
               ph = ACTUAL[pc['size']] || width
-              Member.new(role, pc['size'], pl, cx - pl / 2.0, i * T, slot.z, pl, T, ph)
+              if slot.anchor == :flat # 2x4s laid flat, stacked
+                Member.new(role, pc['size'], pl, cx - pl / 2.0, 0.0, slot.z + i * T, pl, ph, T)
+              else
+                Member.new(role, pc['size'], pl, cx - pl / 2.0, i * T, slot.z, pl, T, ph)
+              end
             end
           elsif slot.id.start_with?('SILL:')
             exp_len = slot.expected['length'].to_f
@@ -411,11 +484,16 @@ module DMACC
         if slot.kind == :post
           return [slot.x, slot.z, slot.x + ACTUAL[slot.expected['size']].to_f, slot.z + l]
         end
+        return [slot.x, slot.z, slot.x + l, slot.z + slot.expected['height'].to_f] if slot.kind == :backing
         if slot.kind == :vertical
           z0 = slot.anchor == :top ? slot.z - l : slot.z
           [slot.x, z0, slot.x + T, z0 + l]
         else
-          h = slot.id.start_with?('HDR:') ? ACTUAL[slot.expected['size']] : T
+          h = if slot.id.start_with?('HDR:')
+                slot.anchor == :flat ? 2 * T : (ACTUAL[slot.expected['size']] || 9.25) # 9.25 = RFI placeholder
+              else
+                T
+              end
           [slot.x, slot.z, slot.x + l, slot.z + h]
         end
       end

@@ -133,7 +133,7 @@ function opRow(o) {
   ['x_text', 'width_text', 'height_text', 'sill_text'].forEach(function (k) {
     r.appendChild(el('input', { value: o[k] || '', 'data-k': k, 'aria-label': k }));
   });
-  r.appendChild(options(el('select', { 'data-k': 'header', 'aria-label': 'Header' }), S.header_choices, o.header || 'Not shown'));
+  r.appendChild(options(el('select', { 'data-k': 'header', 'aria-label': 'Header' }), S.header_choices, o.header || S.header_choices[0]));
   r.appendChild(el('button', { 'class': 'icon', title: 'Remove opening', text: '✕', onclick: function () { r.remove(); } }));
   return r;
 }

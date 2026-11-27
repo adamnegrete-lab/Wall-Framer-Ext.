@@ -45,6 +45,7 @@
 <body>
 <section id="wall"></section>
 
+<section id="rfis"></section>
 <section id="building"></section>
 <div id="mode-note" class="note" style="padding:4px 14px;background:#eee"></div>
 <section class="saw adv">
@@ -144,7 +145,7 @@ function renderBuilding(b) {
     return;
   }
   box.appendChild(el('div', { 'class': 'note', text: b.placed.length + ' of ' + b.walls + ' on' + (b.placed.length ? ' - order: ' + b.placed.join(', ') : '') +
-    '. Click walls in the order the double plates go on - the first plate at a corner or tee laps over it.' }));
+    '. Click each piece in the order it goes on - the first plate at a corner or tee laps over it, and splits the wall it laps into into separate pieces.' }));
   box.appendChild(el('div', { 'class': 'btns' }, [
     el('button', { 'class': S.mode === 'dtp' ? 'primary' : '', text: 'Top view: place double plates', onclick: function () { call('dtp'); } }),
     el('button', { text: 'Check interlock', onclick: function () { call('check_interlock'); } })]));
@@ -156,8 +157,32 @@ function renderBuilding(b) {
   }
 }
 
+function renderRfis(list) {
+  var box = $('rfis'); box.innerHTML = '';
+  if (!list || !list.length) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  box.appendChild(el('h2', { text: 'RFIs' }));
+  list.slice().reverse().forEach(function (r) {
+    var d = el('div', { 'class': 'summary ' + (r.answer ? 'ok' : '') }, [
+      el('strong', { text: 'RFI #' + r.n + ' - ' + r.wall + ' ' + r.mark + ' (' + r.status + ')' }),
+      el('div', { 'class': 'note', text: 'Q: ' + r.question })]);
+    if (r.answer) d.appendChild(el('div', { text: 'A: ' + r.answer }));
+    if (r.can_answer) {
+      var sz = el('select', { 'aria-label': 'Header' });
+      ['2x6', '2x8', '2x10', '2x12', '2x4F'].forEach(function (v) { sz.appendChild(el('option', { value: v, text: v === '2x4F' ? '(2) 2x4 flat' : v })); });
+      var pl = el('select', { 'aria-label': 'Plies' }); ['2', '3', '1'].forEach(function (v) { pl.appendChild(el('option', { value: v, text: v + ' ply' })); });
+      var tx = el('input', { placeholder: 'Your answer (blank = answer from the span table now)', style: 'width:100%' });
+      d.appendChild(el('div', { 'class': 'btns' }, [sz, pl,
+        el('button', { text: 'Answer now', onclick: function () { call('answer_rfi', { n: r.n, header: sz.value, plies: pl.value, text: tx.value }); } })]));
+      d.appendChild(tx);
+    }
+    box.appendChild(d);
+  });
+}
+
 function load(state) {
   S = state;
+  renderRfis(state.rfis);
   renderWall(state.wall);
   renderBuilding(state.building);
   document.querySelectorAll('.adv').forEach(function (x) { x.style.display = state.guided ? 'none' : ''; });

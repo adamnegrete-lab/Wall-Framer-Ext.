@@ -93,6 +93,13 @@ module DMACC
                                     'length_text' => "mark at #{Framing.fmt_len(s.x)} from start" })
               next
             end
+            if s.kind == :backing
+              issues << Issue.new(s.id, s.label, ['backing'], "#{s.id.sub('TEE:', '')} tees into this wall - there's no backing behind it.",
+                                  "The partition's end stud and the drywall need something to nail to: ladder blocking or a 3-stud channel.",
+                                  { 'role' => 'Partition Backing', 'size' => s.expected['size'], 'length' => 0,
+                                    'length_text' => 'ladder blocking or a 3-stud channel' })
+              next
+            end
             issues << Issue.new(s.id, s.label, %w[role size length].select { |f| e.nil? || e[f].to_s.empty? || (f == 'length' && e[f].to_f <= 0) },
                                 'Not filled in yet.', nil, nil)
             next
@@ -214,6 +221,7 @@ module DMACC
 
       def slot_done?(slot, entry)
         return false unless complete?(entry)
+        return entry['full'] != false if slot.id == 'TP:2' # every double plate piece on
         return (entry['pieces'] || []).size >= slot.plies.to_i if slot.id.start_with?('HDR:') && entry['pieces']
         true
       end

@@ -97,6 +97,29 @@ module DMACC
         view.invalidate
       end
 
+      # Right-click: which end the stud layout pulls from.
+      def getMenu(menu, _flags = nil, x = nil, y = nil, view = nil)
+        pick(view, x, y) if view && x
+        return unless @hover
+        w = @hover
+        p = Builder.params_of(w)
+        other = Framing.from_end?(p) ? 'the wall start' : 'the wall end'
+        menu.add_item("#{p['id']}: pull stud layout from #{other}") do
+          if (p['oc'] || (p['marks'] || []).any?) &&
+             UI.messagebox("#{p['id']}'s studs are already laid out. Changing the layout end pulls the studs, cripples " \
+                           'and header blocks (onto the offcut pile). Go ahead?', MB_YESNO) != IDYES
+            next
+          end
+          m = Sketchup.active_model
+          m.start_operation('Layout End', true)
+          Builder.set_layout_from(w, !Framing.from_end?(p))
+          m.commit_operation
+          Dialogs.refresh_yard
+          Dialogs.refresh_frame
+          m.active_view.invalidate
+        end
+      end
+
       def onCancel(_reason, _view)
         Sketchup.active_model.select_tool(nil)
         WallFramer.frame_tool
@@ -123,6 +146,15 @@ module DMACC
           label += '  <- click: ' + (p['run'] == 'through' ? 'butts' : 'runs through') if w == @hover
           c = Geom::Point3d.new(len / 2, d / 2, 0).transform(w.transformation)
           view.draw_text(view.screen_coords(c), "#{p['id']}  #{label}")
+          # layout end: where the tape hooks for the stud layout
+          lx = Framing.from_end?(p) ? len : 0.0
+          dir = Framing.from_end?(p) ? -1 : 1
+          arrow = [[lx, d / 2], [lx + dir * 18, d / 2], [lx + dir * 12, d / 2 - 3], [lx + dir * 18, d / 2], [lx + dir * 12, d / 2 + 3]]
+                  .map { |ax, ay| Geom::Point3d.new(ax, ay, 0).transform(w.transformation) }
+          view.line_width = 2
+          view.drawing_color = 'black'
+          view.draw(GL_LINE_STRIP, arrow)
+          view.draw_text(view.screen_coords(arrow[1]), ' layout') if w == @hover
         end
         corners.each do |c|
           at = view.screen_coords(Geom::Point3d.new(c['at'][0], c['at'][1], @elev))
@@ -148,9 +180,10 @@ module DMACC
         open = corners.count { |c| %w[unset conflict].include?(c['status']) }
         Sketchup.status_text =
           if open.zero?
-            'All corners are set. Press Esc (or click Frame) to start framing.'
+            'All corners are set. Right-click a wall to pull its stud layout from the other end (the arrow shows the layout end) - line up front and back walls. Esc (or Frame) to start framing.'
           else
-            "CORNERS: click a wall to make it run through, again to make it butt. #{open} corner#{open == 1 ? '' : 's'} left to settle."
+            "CORNERS: click a wall to make it run through, again to make it butt. #{open} corner#{open == 1 ? '' : 's'} left to settle. " \
+              'Right-click a wall to pull its stud layout from the other end.'
           end
       end
     end

@@ -109,6 +109,89 @@ module DMACC
                       end }
         end
       end
+      # ---------- double plates as pieces ----------
+      # Students set double plates one piece at a time. A wall's plate starts as
+      # one piece; once a crossing wall's double plate laps into it, the rest of
+      # that wall is separate pieces (each side of the lap), set one by one.
+      # seq = [{ 'wall' => id, 'x' => local x clicked }, ...] in the order set.
+
+      def lapped_gaps(me, joints, spans)
+        joints.select { |j| j['through'] == me && (spans[j['butt']] || []).any? { |s| s['lap'].include?(j['end']) } }
+              .map { |j| [j['a0'], j['a1']] }
+      end
+
+      # Plate still open on a wall: [[a, b], ...] (local x, inside the wall).
+      def free(w, joints, spans)
+        cuts = (spans[w['id']] || []).map { |s| [s['a'], s['b']] } + lapped_gaps(w['id'], joints, spans)
+        segs = [[0.0, w['len'].to_f]]
+        cuts.sort.each do |g0, g1|
+          segs = segs.flat_map do |s0, s1|
+            next [[s0, s1]] if g1 <= s0 + 0.01 || g0 >= s1 - 0.01
+            [[s0, g0], [g1, s1]].select { |a, b| b - a > 0.01 }
+          end
+        end
+        segs
+      end
+
+      # The piece a click at x would set (with any lap past the wall end), or nil.
+      def region(w, by, joints, spans, x)
+        len = w['len'].to_f
+        a, b = free(w, joints, spans).find { |s0, s1| x >= s0 - 0.01 && x <= s1 + 0.01 }
+        return nil unless a
+        laps = []
+        joints.each do |j|
+          next unless j['butt'] == w['id'] && (t = by[j['through']])
+          start = j['end'] == 'start'
+          next unless start ? a <= 0.01 : b >= len - 0.01
+          covered = (spans[t['id']] || []).any? { |s| s['a'] < j['a1'] - 0.01 && s['b'] > j['a0'] + 0.01 }
+          next if covered
+          laps << j['end']
+          start ? a -= t['depth'] : b += t['depth']
+        end
+        { 'a' => a.round(4), 'b' => b.round(4), 'lap' => laps }
+      end
+
+      # Replay the placing order. Returns [spans, bad] - spans: { id => [{a,b,lap,n,i}] }
+      # (n = order number on this level, i = index in seq); bad = seq indexes that no longer fit.
+      def replay(walls, joints, seq)
+        by = walls.to_h { |w| [w['id'], w] }
+        spans = {}
+        bad = []
+        n = 0
+        seq.each_with_index do |rec, i|
+          w = by[rec['wall']] or next # another level
+          sp = region(w, by, joints, spans, rec['x'].to_f)
+          next bad << i unless sp
+          n += 1
+          (spans[w['id']] ||= []) << sp.merge('n' => n, 'i' => i)
+        end
+        [spans, bad]
+      end
+
+      # Per-joint interlock from the pieces actually set.
+      def check_spans(walls, joints, spans)
+        by = walls.to_h { |w| [w['id'], w] }
+        joints.map do |j|
+          b = by[j['butt']]
+          bs = spans[j['butt']] || []
+          ts = spans[j['through']] || []
+          len = b ? b['len'].to_f : 0
+          butt_on = bs.any? { |s| j['end'] == 'start' ? s['a'] <= 0.01 : s['b'] >= len - 0.01 }
+          thru_on = ts.any? { |s| s['a'] < j['a1'] + 1 && s['b'] > j['a0'] - 1 }
+          ok_lap = bs.any? { |s| s['lap'].include?(j['end']) }
+          placed = butt_on && thru_on
+          ok = placed && ok_lap
+          { 'joint' => j, 'placed' => placed, 'ok' => ok,
+            'text' => if !placed
+                        "#{j['butt']} / #{j['through']} #{j['kind']}: double plates not both on yet."
+                      elsif ok
+                        "#{j['butt']} / #{j['through']} #{j['kind']}: interlocked."
+                      else
+                        "#{j['butt']} / #{j['through']} #{j['kind']}: doesn't lap - #{j['butt']}'s top plate butts here, " \
+                          "so its double plate has to go on before #{j['through']}'s piece over the joint."
+                      end }
+        end
+      end
     end
   end
 end
