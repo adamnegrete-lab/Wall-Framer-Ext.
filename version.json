@@ -1,5 +1,5 @@
 {
-  "version": "0.18.0",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.18.0.rbz",
-  "notes": "Frame next wall button (exterior walls clockwise from W-101, then interiors). Inspection covers a whole level and opens once every wall is framed, standing and double-plated."
+  "version": "0.18.1",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.18.1.rbz",
+  "notes": "LAYOUT START label stays up while you use the Tape Measure. Continue framing button in the Frame Wall form."
 }

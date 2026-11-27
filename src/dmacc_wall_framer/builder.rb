@@ -88,6 +88,7 @@ module DMACC
         p['home'] = { 'o' => t.origin.to_a.map(&:to_f), 'x' => t.xaxis.to_a.map(&:to_f) }
         set_params(g, p)
         move_group(g, table_transform(g))
+        rebuild(g) # puts the LAYOUT START label on
       end
 
       # Raise it and set it on its chalk line.
@@ -98,6 +99,7 @@ module DMACC
         p.delete('home')
         set_params(g, p)
         move_group(g, t)
+        rebuild(g) # takes the LAYOUT START label off
       end
 
       # ---------- finding walls ----------
@@ -1057,6 +1059,7 @@ module DMACC
         add_plate_marks(model, group.entities, params) if Inspector.complete?(entries['BP'])
         add_start_arrow(model, group.entities, params)
         add_wall_label(model, group.entities, params)
+        add_start_tag(model, group.entities, params) if params['home'] # on the framing table
         lock(group) # can't be opened or nudged by accident; Tape Measure still snaps to it
         group
       end
@@ -1201,6 +1204,16 @@ module DMACC
       # The wall's ID floating above the middle of the wall (its own tag, so it can be hidden).
       def add_wall_label(model, ents, params)
         t = ents.add_text(params['id'].to_s, Geom::Point3d.new(params['length'].to_f / 2.0, Framing.depth(params) / 2.0, params['height'].to_f + 12))
+        return unless t
+        t.layer = tag(model, TAG_LABELS) if t.respond_to?(:layer=)
+        t.set_attribute(DICT, 'wall_label', true) if t.respond_to?(:set_attribute)
+      end
+
+      # On the framing table: a LAYOUT START label over the corner where the layout starts.
+      # It's model text, so it stays up whatever tool is in hand (Tape Measure too).
+      def add_start_tag(model, ents, params)
+        x = Framing.from_end?(params) ? params['length'].to_f : 0.0
+        t = ents.add_text(x.zero? ? 'LAYOUT START >' : '< LAYOUT START', Geom::Point3d.new(x, Framing.depth(params) / 2.0, params['height'].to_f + 12))
         return unless t
         t.layer = tag(model, TAG_LABELS) if t.respond_to?(:layer=)
         t.set_attribute(DICT, 'wall_label', true) if t.respond_to?(:set_attribute)

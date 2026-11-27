@@ -69,6 +69,12 @@ module DMACC
           d.add_action_callback('save_entries') { |_c, a| save_entries(JSON.parse(a)['entries']) }
           d.add_action_callback('inspect') { |_c, _a| inspect_focus_level }
           d.add_action_callback('frame_next') { |_c, _a| frame_next }
+          d.add_action_callback('continue') do |_c, _a|
+            g = frame_group or next
+            focus_wall(Builder.params_of(g)['id'])
+            activate_tool
+            Sketchup.status_text = "Back to framing #{Builder.params_of(g)['id']} - click a piece or type in the cut list."
+          end
           d.add_action_callback('go_frame') { |_c, _a| open_yard; Sketchup.active_model.select_tool(InstallTool.new) }
           d.add_action_callback('shop') { |_c, _a| (g = frame_group) && open_shop(g) }
           d.add_action_callback('zoom') { |_c, a| zoom(JSON.parse(a)['slot']) }

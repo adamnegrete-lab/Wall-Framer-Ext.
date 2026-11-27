@@ -786,7 +786,7 @@ module DMACC
           # the wall you're working on
           draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), fp['height'].to_f], 'blue', 1)
           # on the table the big label becomes the layout-start tag (SketchUp's own wall ID stays)
-          Builder.on_table?(fg) ? draw_end_tags(view, fg, fp) : draw_wall_label(view, fg, fp)
+          draw_wall_label(view, fg, fp) unless Builder.on_table?(fg) # on the table the LAYOUT START label is in the model
           draw_opening_tags(view, fg, fp)
           if %w[openings commons].include?(Builder.stage(fp))
             draw_box(view, fg.transformation, [0, 0, 0], [fp['length'].to_f, Framing.depth(fp), Framing::T], 'blue', @mark ? 3 : 2)
