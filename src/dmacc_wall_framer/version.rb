@@ -1,5 +1,5 @@
 module DMACC
   module WallFramer
-    VERSION = '0.13.3'.freeze
+    VERSION = '0.13.4'.freeze
   end
 end

@@ -9,7 +9,6 @@ module DMACC
         'Bottom Plate' => 'measure the chalk line on the deck',
         'Top Plate' => 'same as the bottom plate',
         'King Stud' => 'kings run plate to plate',
-        'Jack Stud' => 'plate to header mark',
         'Header' => 'measure between the kings',
         'Rough Sill' => 'fits between the jacks',
         'Common Stud' => 'same as your kings',
@@ -352,16 +351,13 @@ module DMACC
       end
 
       def tip_for(slot, p)
-        if slot.expected['role'] == 'Jack Stud' && (z = (p['hdr_marks'] || {})[slot.opening])
-          return " (header mark: #{Framing.fmt_len(z.to_f)})"
-        end
         return '' unless Project.settings['popup_tips'] && TIPS[tip_key(slot)]
         " (#{TIPS[tip_key(slot)]})"
       end
 
       # A nailed king on an opening with no header mark yet: mark the header height on it.
-      def king_needs_mark?(p, slot)
-        slot.expected['role'] == 'King Stud' && slot.opening && occupied?(p, slot)
+      def king_needs_mark?(_p, _slot)
+        false # header marks on the kings are retired - students work out jack length from the head height
       end
 
       def header_mark_popup(g, slot, p)
@@ -595,9 +591,8 @@ module DMACC
             announce(g, 'openings')
           end
         when 'units'
-          UI.messagebox("Openings are laid out on #{id}.\n\nNext: frame each opening. Kings first, then click a king and mark the " \
-                        'header height on it - your jacks run from the top of the bottom plate up to that mark. Then the jacks, the header ' \
-                        "and the sill. Cripples and header blocks come later - they go on your stud layout.")
+          UI.messagebox("Openings are laid out on #{id}.\n\nNext: frame each opening - kings, jacks, the header and the sill. " \
+                        'Cripples and header blocks come later - they go on your stud layout.')
         when 'commons'
           tees = (p['tee_need'] || []).map { |t| t['id'] }
           UI.messagebox("#{id}: next, the studs. Click each end of the wall and choose its corner assembly - a single stud if this " \
@@ -818,7 +813,7 @@ module DMACC
           when 'corners' then "#{p['id']}: set the corners first - click the Corners tool and decide which walls run through."
           when 'plates' then "#{p['id']}: cut and set the plates - click the bottom plate spot, then the top plate."
           when 'openings' then "#{p['id']}: pull the tape along the bottom plate (blue). Type your plan dimension + Enter (or click) for a pencil mark, then click the mark to lay out the opening."
-          when 'units' then "#{p['id']}: frame the openings (kings, header mark on the kings, jacks, header, sill). Next: #{nxt.join(', ')}."
+          when 'units' then "#{p['id']}: frame the openings (kings, jacks, header, sill). Next: #{nxt.join(', ')}."
           when 'commons'
             if p['oc'] then "#{p['id']}: click each tee spot to put in partition backing (ladder blocking or a 3-stud channel)."
             else "#{p['id']}: click each end of the wall to choose its corner assembly, then pick the stud spacing - the studs lay out and nail themselves."

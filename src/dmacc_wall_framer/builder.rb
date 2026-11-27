@@ -153,13 +153,6 @@ module DMACC
         if slot.kind == :backing && !params['oc']
           return 'Lay out and frame the studs first - the backing goes in with the studs.'
         end
-        if Project.settings['guided'] && slot.expected['role'] == 'Jack Stud' &&
-           !(params['hdr_marks'] || {})[slot.opening] && slots.any? { |s| s.opening == slot.opening && s.expected['role'] == 'King Stud' }
-          kings = slots.select { |s| s.opening == slot.opening && s.expected['role'] == 'King Stud' }
-          if kings.all? { |k| Inspector.slot_done?(k, e[k.id]) }
-            return "Mark the header height on the #{slot.opening} kings first - click a king."
-          end
-        end
         Inspector.gate(slot, e, by)
       end
 
@@ -421,7 +414,7 @@ module DMACC
         e = p['entries'] || {}
         ws.reject { |s| s.id == 'TP:2' || Inspector.slot_done?(s, e[s.id]) }
           .select { |s| Inspector.gate(s, e, by).nil? }
-          .select { |s| (why = gate_reason(p, s, ws)).nil? || why.include?('Mark the header height') }
+          .select { |s| gate_reason(p, s, ws).nil? }
       end
 
       # Nail pieces (supplied from the yard) into a slot. Returns error or nil.

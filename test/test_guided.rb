@@ -69,9 +69,6 @@ n = 0
 next_click = lambda do
   p = Builder.params_of(g)
   s = Builder.next_slots(p).first
-  if (why = Builder.gate_reason(p, s)) && why.include?('Mark the header height')
-    s = Builder.work_slots(p).find { |k| k.opening == s.opening && k.expected['role'] == 'King Stud' }
-  end
   click.(s)
 end
 while Builder.stage(Builder.params_of(g)) == 'units' && n < 60
@@ -80,8 +77,8 @@ end
 chk(@detail_prompts.size == 2 && @detail_prompts[0].size == 5 && @detail_prompts[1].size == 4 && @detail_prompts[0].last.include?('plies') &&
     @detail_prompts[1].none? { |pr| pr.start_with?('Head height') }, 'second pop-up fits the type: doors skip head height')
 chk(@prompts1.size == 3, 'first opening pop-up: centerline, mark, type')
-chk(Builder.params_of(g)['hdr_marks'] == { 'W1' => 82.5, 'D1' => 82.5 }, "header heights marked on the kings: #{Builder.params_of(g)['hdr_marks']}")
-chk(@tips.any? { |t| t.include?("(header mark: 6' 10-1/2\")") }, "jack pop-up shows the student's header mark: #{@tips.first}")
+chk(popups.none? { |t| t.start_with?('Mark the kings') }, 'no header-mark step - students work out jack length')
+chk(@tips.none? { |t| t.include?('header mark') }, "jack pop-up gives no answer: #{@tips.first}")
 chk(popups.none? { |t| t =~ /header/i && t.include?('Lumber') }, 'header pop-up never asks the size again')
 chk(Builder.stage(Builder.params_of(g)) == 'commons', "opening units built with #{n} pop-ups")
 chk(UI.messages.any? { |m| m.include?('choose its corner assembly') }, 'prompted for corner assemblies + spacing')

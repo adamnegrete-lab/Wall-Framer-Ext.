@@ -1,5 +1,5 @@
 {
-  "version": "0.13.3",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.3.rbz",
-  "notes": "Remove-opening buttons in the Framing panel. Right-click menu code now updates on reload. Right-clicks are logged to the Ruby Console to track down the menu problem."
+  "version": "0.13.4",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.4.rbz",
+  "notes": "Header mark on the kings removed - students work out jack stud length from the head height on the plans."
 }
