@@ -99,13 +99,19 @@ module DMACC
             'wall' => { 'id' => p['id'], 'type' => p['type'], 'level' => p['level'], 'stud' => p['stud'],
                         'spacing' => p['spacing'], 'length_text' => len_text(p['length']),
                         'height_text' => len_text(p['height']) },
-            'pos_mode' => @prefill ? 'center' : 'left',
-            'prefill' => @prefill && { 'x_text' => len_text(@prefill) },
+            'pos_mode' => 'center',
+            'guided' => !!s['guided'],
+            'hdr_flat' => Framing::HDR_FLAT, 'hdr_rfi' => Framing::HDR_RFI,
+            'prefill' => @prefill && { 'x_text' => len_text(Framing.layout_dist(p, @prefill)) },
             'openings' => p['openings'].map do |o|
+              ans = o['rfi_new'] && (Project.data['rfis'] || []).find { |r| r['n'] == o['rfi_new'] }
               { 'mark' => o['mark'], 'type' => o['type'],
-                'x_text' => len_text(@prefill ? o['x'].to_f + o['width'].to_f / 2.0 : o['x']),
+                'x_text' => len_text(Framing.layout_dist(p, o['x'].to_f + o['width'].to_f / 2.0)),
                 'width_text' => len_text(o['width']), 'height_text' => len_text(Framing.ro_height(o)),
-                'sill_text' => o['type'] == 'Window' ? len_text(o['height']) : '', 'header' => Framing.header_choice(o['header']) }
+                'sill_text' => o['type'] == 'Window' ? len_text(o['height']) : '',
+                'header' => ans ? Framing::HDR_PICK : Framing.header_choice(o['header']),
+                'plies' => ans ? nil : o['plies'],
+                'rfi_note' => ans && "RFI ##{ans['n']} answered: #{ans['answer']} - pick the header and plies from the answer, then save." }
             end,
             'slots' => order.map do |sl|
               e = entries[sl.id]
@@ -136,27 +142,46 @@ module DMACC
         def save_openings(data)
           g = frame_group or return
           p = Builder.params_of(g)
+          len = p['length'].to_f
           errs = []
           ops = data['openings'].each_with_index.map do |o, i|
             name = o['mark'].to_s.strip.empty? ? "Opening row #{i + 1}" : o['mark'].strip
             w = parse_required(o['width_text'], "#{name} RO width", errs)
             h = parse_required(o['height_text'], "#{name} RO height", errs)
-            x = parse_required(o['x_text'], "#{name} position", errs)
+            d = parse_required(o['x_text'], "#{name} position", errs)
             head = o['type'] == 'Window' ? parse_required(o['sill_text'], "#{name} head height", errs) : h
-            x -= w / 2.0 if x && w && data['pos_mode'] == 'center'
+            # position is from the arrow end, to the center or to the near edge of the RO
+            x = nil
+            if d && w
+              near = data['pos_mode'] == 'center' ? d - w / 2.0 : d
+              x = Framing.from_end?(p) ? len - near - w : near
+            end
             hdr = Framing.header_from_choice(o['header'])
             errs << "#{name}: pick the header from the plans or general notes - if it isn't called out, submit an RFI." unless hdr
+            plies = o['plies'].to_i
+            errs << "#{name}: pick the header plies from the plans (the (2) in \"(2) 2x10\")." if Framing::SIZES.include?(hdr) && plies.zero?
             mark = o['mark'].to_s.strip.upcase
             op = { 'mark' => mark, 'type' => o['type'], 'x' => x, 'width' => w,
                    'header' => hdr }.merge(h && head ? Framing.opening_from_ro(o['type'], h, head) : {})
-            # keep what the RFI / span table said (plies, jacks, RFI number) while the header stays the same
+            op['plies'] = plies if Framing::SIZES.include?(hdr)
+            # an RFI still out (or answered but not updated yet) stays with the opening
             old = p['openings'].find { |q| q['mark'] == mark }
-            %w[plies jacks rfi].each { |k| op[k] = old[k] if old && old['header'] == hdr && old.key?(k) }
+            %w[jacks rfi rfi_new].each { |k| op[k] = old[k] if old && old['header'] == hdr && hdr == Framing::RFI && old.key?(k) }
+            op['jacks'] = old['jacks'] if old && old['jacks'] && old['header'] == hdr
             op
           end
           # marks must be unique across the whole model (they match the schedules)
           others = Builder.all_walls.reject { |w| w == g }.flat_map { |w| Builder.params_of(w)['openings'].map { |o| o['mark'] } }
           ops.each { |o| errs << "#{o['mark']} is already used on another wall." if others.include?(o['mark']) }
+          # an opening that's already framed can't move or disappear from here
+          e = p['entries'] || {}
+          framed = Builder.work_slots(p).select { |sl| sl.opening && Inspector.complete?(e[sl.id]) }.map(&:opening).uniq
+          framed.each do |mk|
+            was = p['openings'].find { |o| o['mark'] == mk }
+            now = ops.find { |o| o['mark'] == mk }
+            same = now && %w[type x width height sill header plies].all? { |k| (was[k].is_a?(Numeric) ? (was[k].to_f - now[k].to_f).abs < 1e-3 : was[k] == now[k]) }
+            errs << "#{mk} is already framed - pull its pieces with the Demo tool before changing or removing it." unless same
+          end
           if errs.empty?
             test = p.merge('openings' => ops)
             errs = Framing.validate(test, Project.header_table)
@@ -165,17 +190,33 @@ module DMACC
             js(@frame, 'openingErrors', errs)
             return
           end
+          guided = Project.settings['guided']
+          before = Builder.stage(p)
           operation('Edit Openings') do
+            p = Builder.params_of(g)
             p['openings'] = ops
             p['last_inspection'] = nil
             p['flags'] = []
+            p['openings_done'] = true
             Builder.set_params(g, p)
             Builder.rebuild(g)
           end
-          send_frame
           js(@frame, 'openingErrors', [])
-          js(@frame, 'afterOps', nil)
           unsent = ops.find { |op| op['header'] == Framing::RFI && !op['rfi'] }
+          held = ops.select { |op| op['header'] == Framing::RFI }.map { |op| op['mark'] }
+          if guided
+            @frame.close
+            Sketchup.status_text = if ops.empty? then "#{p['id']}: no openings - on to the studs."
+                                   elsif held.any? then "#{p['id']}: openings saved. #{held.join(', ')} on hold for an RFI - frame the others."
+                                   else "#{p['id']}: openings saved. Frame them: kings, jacks, header, sill."
+                                   end
+            @tool.announce(g, before) if @tool.respond_to?(:announce) && Builder.find_wall(p['id'])
+          else
+            send_frame
+            js(@frame, 'afterOps', nil)
+          end
+          refresh_yard
+          Sketchup.active_model.active_view.invalidate
           open_rfi(p['id'], unsent['mark']) if unsent
         end
 
@@ -483,13 +524,8 @@ module DMACC
             g = focus_group or next
             activate_tool
             mark = JSON.parse(a)['mark']
-            op = Builder.params_of(g)['openings'].find { |o| o['mark'] == mark }
-            next send_yard unless op
-            if op['rfi_new']
-              @tool.read_rfi_answer(g, op)
-            else
-              @tool.opening_popup(g, nil, edit: mark)
-            end
+            next send_yard unless Builder.params_of(g)['openings'].any? { |o| o['mark'] == mark }
+            open_frame(g)
             send_yard
           end
           d.add_action_callback('remove_opening') do |_c, a|
@@ -501,11 +537,7 @@ module DMACC
           d.add_action_callback('openings_done') do |_c, _a|
             g = focus_group or next
             activate_tool
-            if @tool.respond_to?(:finish_openings)
-              @tool.finish_openings(g)
-            else
-              operation('Done With Openings') { Builder.set_flag(g, 'openings_done', true) }
-            end
+            open_frame(g)
             send_yard
           end
           d.add_action_callback('check_interlock') do |_c, _a|

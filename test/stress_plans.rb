@@ -226,25 +226,29 @@ def frame_wall(g)
       finding("#{id}: stuck at corners")
       return false
     when 'openings'
-      if S.ops.empty?
-        before = Builder.stage(p)
-        TOOL.finish_openings(g) # what the panel button / right-click does
-        finding("#{id}: 'Done with openings' didn't move on") if Builder.stage(Builder.params_of(g)) == before
-      else
-        o = S.ops.first
-        # pull the tape: type the plan dimension, then click the pencil mark
-        face(g, 10, 0.8); TOOL.onMouseMove(0, 0, 0, V)
-        TOOL.onUserText(Framing.fmt_len(Framing.layout_dist(p, o[2])), V)
-        pen = (Builder.params_of(g)['pencil'] || []).map(&:to_f).min_by { |m| (m - o[2]).abs }
-        finding("#{id}: typed tape reading didn't leave a pencil mark at #{o[2]}") unless pen && (pen - o[2]).abs < 0.1
-        before = Builder.params_of(g)['openings'].size
-        click(g, (pen || o[2]) + 0.3, 0.8)
-        if Builder.params_of(g)['openings'].size == before
-          finding("#{id}: clicking the pencil mark didn't lay out #{o[0]} (status: #{Sketchup.status_text})")
-          S.ops.shift
-        end
-        rfi_flow(g, o) if o[6] == :rfi
+      # the Openings form opens when the plates are done; clicking the wall opens it too
+      click(g, 30, 50)
+      fd = UI::HtmlDialog.all.reverse.find { |d| d.instance_variable_get(:@cbs)&.key?('save_openings') }
+      unless fd
+        finding("#{id}: clicking a wall at the openings step didn't open the Openings form")
+        return false
       end
+      fd.fire('ready')
+      rows = S.ops.map do |o|
+        hdr = case o[6] when :rfi then Framing::HDR_RFI when :flat then Framing::HDR_FLAT else o[6] end
+        { 'mark' => o[0], 'type' => o[1], 'x_text' => Framing.fmt_len(Framing.layout_dist(p, o[2])),
+          'width_text' => Framing.fmt_len(o[3].to_f), 'height_text' => Framing.fmt_len(o[4].to_f),
+          'sill_text' => o[1] == 'Window' ? Framing.fmt_len(o[5].to_f) : '', 'header' => hdr, 'plies' => o[7] ? o[7].to_s : '--' }
+      end
+      fd.fire('save_openings', { 'pos_mode' => 'center', 'openings' => rows })
+      errs = fd.last('openingErrors') || []
+      unless errs.empty?
+        finding("#{id}: Openings form refused: #{errs.first(2)}")
+        return false
+      end
+      rfis = S.ops.select { |o| o[6] == :rfi }
+      S.ops = []
+      rfis.each { |o| rfi_flow(g, o) }
     when 'commons'
       if !p['oc']
         click(g, 4, 50)
@@ -276,6 +280,7 @@ end
 # Header not on the plans: RFI form -> wait -> answer -> student updates the opening
 def rfi_flow(g, o)
   id = Builder.params_of(g)['id']
+  Dialogs.open_rfi(id, o[0]) unless (Builder.params_of(g)['openings'].find { |x| x['mark'] == o[0] } || {})['rfi']
   d = UI::HtmlDialog.all.last
   if d.instance_variable_get(:@cbs)&.key?('submit')
     d.fire('ready')
@@ -299,7 +304,14 @@ def rfi_flow(g, o)
   ws = Builder.work_slots(Builder.params_of(g))
   k = ws.find { |x| x.opening == o[0] }
   x0, z0, x1, z1 = Framing.slot_box(k)
-  click(g, (x0 + x1) / 2, (z0 + z1) / 2) # click the opening -> read -> update
+  click(g, (x0 + x1) / 2, (z0 + z1) / 2) # click the opening -> read the answer -> the Openings form
+  fd = UI::HtmlDialog.all.reverse.find { |dd| dd.instance_variable_get(:@cbs)&.key?('save_openings') }
+  fd.fire('ready')
+  rows = fd.last('load')['openings']
+  m = r['answer'].match(/\((\d)\) (2x\d+)/)
+  rows = rows.map { |row| row['mark'] == o[0] ? row.merge('header' => m ? m[2] : Framing::HDR_FLAT, 'plies' => m ? m[1] : '--') : row }
+  fd.fire('save_openings', { 'pos_mode' => 'center', 'openings' => rows })
+  finding("#{id}: updating #{o[0]} from the RFI answer was refused: #{fd.last('openingErrors')}") unless (fd.last('openingErrors') || []).empty?
   op = Builder.params_of(g)['openings'].find { |x| x['mark'] == o[0] }
   finding("#{id}: #{o[0]} still on hold after reading the RFI answer and updating") if op['header'] == Framing::RFI
 end

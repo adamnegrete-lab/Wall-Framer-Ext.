@@ -68,10 +68,13 @@ Builder.set_params(w2, p)
 chk(Builder.stage(Builder.params_of(w2)) == 'openings', 'W-102 at the openings step')
 tool.instance_variable_set(:@focus, 'W-102')
 menu = Struct.new(:items) { def add_item(t, &b) = items << [t, b] }.new([]); tool.menu_items(menu)
-item = menu.items.find { |t2, _| t2.include?('no openings') }
-chk(item, "right-click offers a way out: #{menu.items.map(&:first)}")
+item = menu.items.find { |t2, _| t2.include?('Enter openings for W-102') }
+chk(item, "right-click opens the Openings form: #{menu.items.map(&:first)}")
 item[1].call
-chk(Builder.stage(Builder.params_of(w2)) != 'openings', 'done with openings - no Ctrl+Z needed')
+fd = UI::HtmlDialog.all.last
+fd.fire('ready')
+fd.fire('save_openings', { 'pos_mode' => 'center', 'openings' => [] }) # 'No openings in this wall'
+chk(Builder.stage(Builder.params_of(w2)) != 'openings', 'No openings in this wall - straight to framing')
 p = Builder.params_of(w2)
 p['openings'] = [{ 'mark' => 'D3', 'type' => 'Door', 'x' => 30.0, 'width' => 32.0, 'height' => 82.5, 'sill' => 0.0, 'header' => '2x10', 'plies' => 3 }]
 Builder.set_params(w2, p)
@@ -87,7 +90,7 @@ p['openings'] = [{ 'mark' => 'D4', 'type' => 'Door', 'x' => 30.0, 'width' => 32.
 Builder.set_params(w2, p)
 cm = Struct.new(:items) { def add_item(t, &b) = items << [t, b]; def add_separator = items << ['--']; def add_submenu(*) = self }.new([])
 DMACC::WallFramer.context_menu(cm)
-chk(cm.items.first(3).map(&:first).any? { |t2| t2.include?('Done with openings') }, "SketchUp's menu gets the framing items first: #{cm.items.first(3).map(&:first)}")
+chk(cm.items.first(3).map(&:first).any? { |t2| t2.include?('Enter openings') || t2.include?('openings on W-102') }, "SketchUp's menu gets the framing items first: #{cm.items.first(3).map(&:first)}")
 # panel: Remove D4 button
 Dialogs.open_yard; yd = UI::HtmlDialog.all.last; Dialogs.focus_wall('W-102'); yd.fire('ready')
 chk(yd.last('load')['wall']['removable'] == ['D4'], 'This Wall tab lists D4 to remove')

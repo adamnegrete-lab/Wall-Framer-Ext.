@@ -33,13 +33,14 @@ check(w1.entities.count { |e| e.is_a?(Sketchup::ComponentInstance) } > 10, 'layo
 # --- frame dialog: openings
 M.selection.clear; M.selection.add(w1)
 DMACC::WallFramer.frame_wall
+Project.update { |d| d['settings']['guided'] = false } # the manual-entry (advanced) path
 fd = UI::HtmlDialog.all.last
 fd.fire('ready')
 fs = fd.last('load')
 check(fs['wall']['id'] == 'W-101' && fs['slots'].size == 16, "frame state slots=#{fs['slots'].size}")
 fd.fire('save_openings', { 'pos_mode' => 'left', 'openings' => [
-  { 'mark' => 'w1', 'type' => 'Window', 'x_text' => '30', 'width_text' => "3'", 'height_text' => '40 1/2', 'sill_text' => '82 1/2', 'header' => '2x6' },
-  { 'mark' => 'D1', 'type' => 'Door', 'x_text' => "9' 2\"", 'width_text' => '38', 'height_text' => '82-1/2', 'sill_text' => '', 'header' => '2x10' }]})
+  { 'mark' => 'w1', 'type' => 'Window', 'x_text' => '30', 'width_text' => "3'", 'height_text' => '40 1/2', 'sill_text' => '82 1/2', 'header' => '2x6', 'plies' => '3' },
+  { 'mark' => 'D1', 'type' => 'Door', 'x_text' => "9' 2\"", 'width_text' => '38', 'height_text' => '82-1/2', 'sill_text' => '', 'header' => '2x10', 'plies' => '3' }]})
 check(fd.last('openingErrors') == [], "openings saved #{fd.last('openingErrors')}")
 fs = fd.last('load')
 check(fs['slots'].size == 30 && fs['openings'][0]['mark'] == 'W1', "31 slots after openings (#{fs['slots'].size})")

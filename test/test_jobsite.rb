@@ -39,7 +39,7 @@ tool.set_mode(:opening); down.(132.0); tool.onMouseMove(0,0,0,V); tool.onLButton
 fd = UI::HtmlDialog.all.find { |d| d.file.to_s.end_with?('frame.html') }; fd.fire('ready')
 st = fd.last('load'); chk(st['prefill'] && st['prefill']['x_text'] == "11' 0\"" && st['pos_mode'] == 'center', "frame dialog prefilled CL #{st['prefill']}")
 fd.fire('save_openings', { 'pos_mode' => 'center', 'openings' => [
-  { 'mark' => 'D1', 'type' => 'Door', 'x_text' => "11'", 'width_text' => '38', 'height_text' => '82 1/2', 'sill_text' => '', 'header' => '2x10' }]})
+  { 'mark' => 'D1', 'type' => 'Door', 'x_text' => "11'", 'width_text' => '38', 'height_text' => '82 1/2', 'sill_text' => '', 'header' => '2x10', 'plies' => '3' }]})
 chk(fd.last('openingErrors') == [], 'door saved from centerline')
 tool.set_mode(:nail)
 ws = Builder.work_slots(Builder.params_of(g))

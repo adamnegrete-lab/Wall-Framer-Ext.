@@ -19,7 +19,9 @@
   .row { display: grid; gap: 6px; align-items: center; padding: 5px 4px; border-bottom: 1px solid #eee; }
   .slot { grid-template-columns: 26px 1fr 230px 26px; }
   .empty { color: #999; }
-  .op { grid-template-columns: 70px 90px 1fr 1fr 1fr 1fr 110px 26px; }
+  .op { grid-template-columns: 64px 84px 1fr 1fr 1fr 1fr 150px 56px 26px; }
+  .op .rfi { grid-column: 1 / -1; font-size: 12px; color: var(--ok); background: var(--okbg); padding: 4px 6px; border-radius: 3px; }
+  input:disabled { background: #eee; color: #999; }
   .head { font-weight: 600; color: var(--mute); font-size: 12px; border-bottom: 1px solid var(--line); }
   .num { color: var(--mute); text-align: right; }
   select, input { font: inherit; padding: 3px 5px; border: 1px solid #aaa; border-radius: 3px; width: 100%; background: #fff; }
@@ -55,14 +57,15 @@
 </nav>
 <main>
   <section class="tab on" id="tab-openings">
-    <p class="note">Enter openings from the plans. Use the mark from the door/window schedule. Distances are measured from the wall start (the end with the arrow).</p>
+    <p class="note">Enter every door and window in this wall from the plans: the mark from the schedule, the position, the rough opening and the header.
+      <strong>Positions are measured from the arrow end of the wall</strong> (where your layout starts). You can keep using the Tape Measure while this window is open.</p>
     <div id="op-errors"></div>
-    <div class="row op head"><div>Mark</div><div>Type</div><div>Position</div><div>RO width</div><div>RO height</div><div>Head height (win.)</div><div>Header (plans)</div><div></div></div>
+    <div class="row op head"><div>Mark</div><div>Type</div><div>Position</div><div>RO width</div><div>RO height</div><div>Head height (windows)</div><div>Header (plans)</div><div>Plies</div><div></div></div>
     <div id="ops"></div>
     <p><button class="btn" id="add-op">+ Add opening</button>
       &nbsp; Position measured to:
-      <select id="pos-mode" style="width:auto"><option value="left">left edge of RO</option><option value="center">center of RO</option></select></p>
-    <p class="note">Lengths: type feet and inches like 7' 8-5/8" or inches like 92 5/8.</p>
+      <select id="pos-mode" style="width:auto"><option value="center">center of the RO</option><option value="left">near edge of the RO (closest to the arrow)</option></select></p>
+    <p class="note">Lengths: type feet and inches like 7' 8-5/8" or inches like 92 5/8. Header not on the plans or in the general notes? Pick "Not on plans - submit RFI". Don't assume.</p>
   </section>
 
   <section class="tab" id="tab-framing">
@@ -75,7 +78,8 @@
 <div class="bar">
   <span id="status" class="note"></span>
   <span class="spacer"></span>
-  <button class="btn" id="save-ops">Save openings</button>
+  <button class="btn" id="no-ops">No openings in this wall</button>
+  <button class="btn primary" id="save-ops">Save openings</button>
   <button class="btn" id="shop" style="display:none">Shop drawing</button>
   <button class="btn" id="save-entries" style="display:none">Go frame it (yard + tools)</button>
   <button class="btn primary" id="inspect" style="display:none">Request inspection</button>
@@ -119,6 +123,7 @@ function showTab(t) {
   document.querySelectorAll('nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
   document.querySelectorAll('.tab').forEach(function (s) { s.classList.toggle('on', s.id === 'tab-' + t); });
   $('save-ops').style.display = t === 'openings' ? '' : 'none';
+  $('no-ops').style.display = t === 'openings' && !document.querySelectorAll('#ops .row').length ? '' : 'none';
   $('save-entries').style.display = t === 'framing' ? '' : 'none';
   $('shop').style.display = t === 'framing' ? '' : 'none';
   $('inspect').style.display = t === 'framing' ? '' : 'none';
@@ -126,15 +131,28 @@ function showTab(t) {
 
 // ---------- openings ----------
 function opRow(o) {
-  var r = el('div', { 'class': 'row op' });
+  var r = el('div', { 'class': 'row op' + (o.rfi_note ? ' okrow' : '') });
   r.appendChild(el('input', { value: o.mark || '', placeholder: 'W1', 'data-k': 'mark', 'aria-label': 'Mark' }));
   var t = options(el('select', { 'data-k': 'type', 'aria-label': 'Type' }), ['Window', 'Door'], o.type || 'Window');
   r.appendChild(t);
-  ['x_text', 'width_text', 'height_text', 'sill_text'].forEach(function (k) {
-    r.appendChild(el('input', { value: o[k] || '', 'data-k': k, 'aria-label': k }));
+  [['x_text', 'Position'], ['width_text', 'RO width'], ['height_text', 'RO height'], ['sill_text', 'Head height']].forEach(function (k) {
+    r.appendChild(el('input', { value: o[k[0]] || '', 'data-k': k[0], 'aria-label': k[1] }));
   });
-  r.appendChild(options(el('select', { 'data-k': 'header', 'aria-label': 'Header' }), S.header_choices, o.header || S.header_choices[0]));
-  r.appendChild(el('button', { 'class': 'icon', title: 'Remove opening', text: '✕', onclick: function () { r.remove(); } }));
+  var hdr = options(el('select', { 'data-k': 'header', 'aria-label': 'Header' }), S.header_choices, o.header || S.header_choices[0]);
+  r.appendChild(hdr);
+  var pl = options(el('select', { 'data-k': 'plies', 'aria-label': 'Header plies' }), ['--', '1', '2', '3'], o.plies ? String(o.plies) : '--');
+  r.appendChild(pl);
+  r.appendChild(el('button', { 'class': 'icon', title: 'Remove opening', text: '✕', onclick: function () { r.remove(); showTab('openings'); } }));
+  if (o.rfi_note) r.appendChild(el('div', { 'class': 'rfi', text: o.rfi_note }));
+  function sync() {
+    var head = r.querySelector('[data-k=sill_text]');
+    var door = t.value === 'Door';
+    head.disabled = door; if (door) head.value = '';
+    head.placeholder = door ? 'n/a' : '';
+    var fixed = hdr.value === S.hdr_flat || hdr.value === S.hdr_rfi;
+    pl.disabled = fixed; if (fixed) pl.value = '--';
+  }
+  t.addEventListener('change', sync); hdr.addEventListener('change', sync); sync();
   return r;
 }
 function readOps() {
@@ -146,7 +164,8 @@ function readOps() {
   });
   return out;
 }
-$('add-op').addEventListener('click', function () { $('ops').appendChild(opRow({})); });
+$('add-op').addEventListener('click', function () { $('ops').appendChild(opRow({})); showTab('openings'); });
+$('no-ops').addEventListener('click', function () { call('save_openings', { openings: [], pos_mode: $('pos-mode').value }); });
 $('save-ops').addEventListener('click', function () {
   call('save_openings', { openings: readOps(), pos_mode: $('pos-mode').value });
 });
@@ -256,7 +275,9 @@ function load(state) {
     state.wall.stud + ' @ ' + state.wall.spacing + '" O.C.  |  ' + state.wall.height_text + ' overall height';
   $('ops').innerHTML = '';
   state.openings.forEach(function (o) { $('ops').appendChild(opRow(o)); });
-  $('pos-mode').value = state.pos_mode || 'left';
+  $('pos-mode').value = state.pos_mode || 'center';
+  document.querySelector('nav button[data-tab=framing]').style.display = state.guided ? 'none' : '';
+  if (state.guided) showTab('openings');
   if (state.prefill) {
     var r = opRow({ x_text: state.prefill.x_text });
     $('ops').appendChild(r);
@@ -265,7 +286,8 @@ function load(state) {
   }
   renderSlots();
   showInspection(state.inspection);
-  $('status').textContent = '';
+  showTab(document.querySelector('nav button.on').dataset.tab);
+  $('status').textContent = state.saved_note || '';
 }
 function openingErrors(errs) {
   var b = $('op-errors');

@@ -56,8 +56,12 @@ p['entries'] = Builder.work_slots(p).select { |x| x.phase == 'plates' }.to_h { |
 Builder.set_params(g, p)
 tool.onMouseMove(0, 0, 0, V); tool.onLButtonDown(0, 0, 0, V)
 chk(UI.messages.last.to_s.include?("A: W1: use"), "click the opening -> reads the answer: #{UI.messages.last.to_s.lines[4]&.strip}")
-d2 = edit_seen.find { |t2, _| t2.include?('(Window) - Edit W1') }
-chk(d2 && d2[1][0] == "3' 0\"" && d2[1][2] == "6' 10-1/2\"" && d2[1][3] == Framing::HDR_PICK, "original pop-ups open with what was entered (header left to fill in): #{d2 && d2[1]}")
+fd = UI::HtmlDialog.all.last
+fd.fire('ready')
+row = fd.last('load')['openings'].find { |r| r['mark'] == 'W1' }
+chk(row && row['width_text'] == "3' 0\"" && row['sill_text'] == "6' 10-1/2\"" && row['header'] == Framing::HDR_PICK && row['rfi_note'].to_s.include?('answered'),
+    "Openings form opens with what was entered, header left to fill in, answer shown: #{row && row['rfi_note']}")
+fd.fire('save_openings', { 'pos_mode' => 'center', 'openings' => [row.merge('header' => '2x6', 'plies' => '1')] })
 o = Builder.params_of(g)['openings'][0]
 chk(o['header'] == '2x6' && o['plies'] == 1 && !o['rfi_new'] && Builder.gate_reason(Builder.params_of(g), s).nil?, 'student updated W1 from the answer - off hold')
 

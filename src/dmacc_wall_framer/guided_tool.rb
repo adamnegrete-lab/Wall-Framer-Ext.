@@ -68,15 +68,9 @@ module DMACC
             return
           end
         end
-        plate = Builder.all_walls.map { |g| plate_point(view, x, y, g, Builder.params_of(g), ray) }.compact.min_by { |h| h[4] }
-        plate = nil if plate && Builder.stage(plate[1]) != 'openings'
-        # Anywhere on the bottom plate's face counts too (not just its top edge)
-        # At the openings step a click anywhere on the wall works (the pop-up asks the distance)
-        if face && Builder.stage(face[2]) == 'openings'
-          _, fg, fp, flx, = face
-          snapped = plate && plate[3] && plate[0] == fg
-          plate = snapped ? plate : [fg, fp, flx, false, face[0]]
-        end
+        # Openings are entered in the Openings form (it stays open beside the Tape Measure),
+        # so the plate no longer takes tape readings / pencil marks.
+        plate = nil
         slot = nil
         if face
           _, g, p, lx, lz = face
@@ -125,6 +119,12 @@ module DMACC
       def onLButtonDown(_flags, x, y, view)
         Builder.close_edits
         pick(view, x, y)
+        fg = @focus && Builder.find_wall(@focus)
+        if @mode != :dtp && fg && Builder.stage(Builder.params_of(fg)) == 'openings'
+          Dialogs.open_frame(fg)
+          Sketchup.status_text = "#{@focus}: enter its openings from the plans in the Openings form (or click 'No openings in this wall')."
+          return
+        end
         if @mode == :dtp
           click_dtp
         elsif @corner
@@ -177,32 +177,12 @@ module DMACC
         Sketchup.status_text = err || "#{msg} #{nxt}"
       end
 
-      # Typing a number = pull the tape exactly that far from the wall start.
+      # Nothing in the Frame tool takes a typed number now (openings go in the Openings form).
       def onUserText(text, view)
         g = @focus && Builder.find_wall(@focus)
         return super if @mode == :dtp || g.nil?
-        p = Builder.params_of(g)
-        stage = Builder.stage(p)
-        unless stage == 'openings'
-          UI.beep
-          Sketchup.status_text = 'Type a tape reading while laying out openings.'
-          return
-        end
-        x = Framing.parse_len(text)
-        unless x && x > 0
-          UI.beep
-          Sketchup.status_text = "Couldn't read \"#{text}\" - try 48 or 4' 0\"."
-          return
-        end
-        x = from_tape(p, x)
-        before = stage
-        if stage == 'openings'
-          pencil(g, x)
-        else
-          mark_click(g, x)
-          announce(g, before)
-        end
-        view.invalidate
+        UI.beep
+        Sketchup.status_text = Builder.stage(Builder.params_of(g)) == 'openings' ? 'Openings go in the Openings form - click the wall to open it.' : 'Nothing to type here - click a spot on the wall.'
       end
 
       CORNERS = {
@@ -400,8 +380,8 @@ module DMACC
       def read_rfi_answer(g, op)
         r = (Project.data['rfis'] || []).find { |x| x['n'] == op['rfi_new'] }
         UI.messagebox("RFI ##{op['rfi_new']} - #{op['mark']}\n\nQ: #{r && r['question']}\n\nA: #{r && r['answer']}\n\n" \
-                      "Next: update #{op['mark']} with the answer. (It's saved in Job Notes if you need it again.)")
-        opening_popup(g, nil, edit: op['mark'])
+                      "Next: update #{op['mark']} with the answer in the Openings form. (It's saved in Job Notes if you need it again.)")
+        Dialogs.open_frame(g)
         Dialogs.refresh_yard
       end
 
@@ -599,14 +579,10 @@ module DMACC
         id = p['id']
         case after
         when 'openings'
-          r = UI.messagebox("Plates are set on #{id}.\n\nNext: find your opening centerlines. Hook your tape on the arrow end " \
-                            "of the wall: hover the bottom plate (outlined in blue) and the tape pulls out with a reading. Type your plan dimension and press Enter " \
-                            "(or click) to pencil-mark the centerline, then click the pencil mark to lay out the opening.\n\n" \
-                            "Does #{id} have any openings?", MB_YESNO)
-          if r != IDYES
-            Builder.set_flag(g, 'openings_done', true)
-            announce(g, 'openings')
-          end
+          # Plates are on: the Openings form opens for this wall
+          Sketchup.status_text = "Plates are set on #{id}. Next: enter its doors and windows from the plans in the Openings form " \
+                                 "(positions from the arrow end). No openings? Click 'No openings in this wall'."
+          Dialogs.open_frame(g)
         when 'units'
           UI.messagebox("Openings are laid out on #{id}.\n\nNext: frame each opening - kings, jacks, the header and the sill. " \
                         'Cripples and header blocks come later - they go on your stud layout.')
@@ -642,7 +618,7 @@ module DMACC
         end
         if @target && @target[1].opening && editable?(@target[2], @target[1].opening)
           g, slot, = @target
-          menu.add_item("Edit opening #{slot.opening}") { opening_popup(g, nil, edit: slot.opening) }
+          menu.add_item("Edit opening #{slot.opening}") { Dialogs.open_frame(g) }
         end
         super(menu, flags, nil, nil, nil)
         wall_items(menu)
@@ -657,8 +633,7 @@ module DMACC
         e = p['entries'] || {}
         ws = Builder.work_slots(p)
         if stage == 'openings'
-          label = p['openings'].empty? ? "#{id} has no openings - done" : "Done with openings on #{id}"
-          menu.add_item(label) { finish_openings(g) }
+          menu.add_item("Enter openings for #{id}") { Dialogs.open_frame(g) }
         end
         if %w[openings units].include?(stage)
           p['openings'].each do |o|
@@ -668,11 +643,7 @@ module DMACC
           end
         end
         if stage == 'units' && ws.none? { |s| s.phase == 'commons' && Inspector.complete?(e[s.id]) }
-          menu.add_item("Lay out another opening on #{id}") do
-            Builder.set_flag(g, 'openings_done', false)
-            Sketchup.status_text = "#{id}: pull the tape and pencil-mark the next opening centerline."
-            Dialogs.refresh_yard
-          end
+          menu.add_item("Add or change openings on #{id}") { Dialogs.open_frame(g) }
         end
       end
 
@@ -835,7 +806,7 @@ module DMACC
           case Builder.stage(p)
           when 'corners' then "#{p['id']}: set the corners first - click the Corners tool and decide which walls run through."
           when 'plates' then "#{p['id']}: cut and set the plates - click the bottom plate spot, then the top plate."
-          when 'openings' then "#{p['id']}: pull the tape along the bottom plate (blue). Type your plan dimension + Enter (or click) for a pencil mark, then click the mark to lay out the opening."
+          when 'openings' then "#{p['id']}: enter the openings in the Openings form - click the wall to open it. The Tape Measure works while it's open."
           when 'units' then "#{p['id']}: frame the openings (kings, jacks, header, sill). Next: #{nxt.join(', ')}."
           when 'commons'
             if p['oc'] then "#{p['id']}: click each tee spot to put in partition backing (ladder blocking or a 3-stud channel)."

@@ -47,23 +47,25 @@ click = ->(s) { x0, z0, x1, z1 = Framing.slot_box(s); face.((x0 + x1) / 2, (z0 +
 bp = Builder.work_slots(Builder.params_of(g)).find { |s| s.id == 'BP' }; click.(bp)
 tp = Builder.work_slots(Builder.params_of(g)).find { |s| s.id == 'TP:1' }; click.(tp)
 chk(Builder.stage(Builder.params_of(g)) == 'openings', 'plates set by pop-up -> openings stage')
-chk(UI.messages.any? { |m| m.include?('find your opening centerlines') }, 'prompted to find opening centerlines')
-# click centerlines on the plate
-# pull the tape: type the plan dimension -> pencil mark, then click the mark -> opening pop-up
-face.(10.0, 0.8); tool.onMouseMove(0,0,0,V)
-chk(tool.instance_variable_get(:@mark), 'hovering the bottom plate face pulls the tape')
-tool.onUserText("4'", V)
-chk(Builder.params_of(g)['pencil'] == [48.0], 'typed reading -> pencil mark at 4\'')
-face.(48.9, 0.8); tool.onMouseMove(0,0,0,V)
-chk(tool.instance_variable_get(:@mark)[5] == 48.0, 'cursor near the mark snaps to it')
-tool.onLButtonDown(0,0,0,V)
-chk(@seen_cl == "4' 0\"", "opening pop-up prefilled with the mark: #{@seen_cl}")
-# second opening: click to pencil (tape reading), then click the mark
-face.(131.97, 0.8); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
-face.(132.5, 0.8); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
+fd = UI::HtmlDialog.all.last
+chk(fd.instance_variable_get(:@cbs)&.key?('save_openings') && Sketchup.status_text.include?('Openings form'), "plates done -> the Openings form opens on its own (#{Sketchup.status_text[0, 60]})")
+# typing a tape reading in the Frame tool no longer drops pencil marks
+face.(10.0, 0.8); tool.onMouseMove(0,0,0,V); tool.onUserText("4'", V)
+chk(Builder.params_of(g)['pencil'].to_a.empty? && Sketchup.status_text.include?('Openings form'), 'no tape/pencil click-through - points to the form')
+fd.fire('ready')
+st = fd.last('load')
+chk(st['guided'] && st['openings'].empty?, 'form opens on the Openings tab with no rows')
+# a missing plies pick is caught
+fd.fire('save_openings', { 'pos_mode' => 'center', 'openings' => [
+  { 'mark' => 'W1', 'type' => 'Window', 'x_text' => "4'", 'width_text' => '36', 'height_text' => '48', 'sill_text' => '82 1/2', 'header' => '2x8', 'plies' => '--' }] })
+chk(fd.last('openingErrors').any? { |e| e.include?('plies') }, 'plies required from the plans')
+fd.fire('save_openings', { 'pos_mode' => 'center', 'openings' => [
+  { 'mark' => 'W1', 'type' => 'Window', 'x_text' => "4'", 'width_text' => '36', 'height_text' => '48', 'sill_text' => '82 1/2', 'header' => '2x8', 'plies' => '3' },
+  { 'mark' => 'D1', 'type' => 'Door', 'x_text' => "11'", 'width_text' => '38', 'height_text' => '82 1/2', 'sill_text' => '', 'header' => '2x10', 'plies' => '3' }] })
 p = Builder.params_of(g)
-chk(p['openings'].map { |o| [o['mark'], o['x']] } == [['W1', 30.0], ['D1', 113.0]], "openings from centerline clicks: #{p['openings'].map { |o| [o['mark'], o['x']] }}")
-chk(Builder.stage(p) == 'units', 'openings done -> units stage')
+chk(p['openings'].map { |o| [o['mark'], o['x']] } == [['W1', 30.0], ['D1', 113.0]], "openings from the form (centers from the arrow end): #{p['openings'].map { |o| [o['mark'], o['x']] }}")
+chk(Builder.stage(p) == 'units', 'saving the form -> units stage')
+chk(UI.messages.last.to_s.include?('frame each opening'), 'told to frame the openings next')
 # build units: always click whatever is next (student follows the green marks)
 n = 0
 next_click = lambda do
@@ -74,9 +76,6 @@ end
 while Builder.stage(Builder.params_of(g)) == 'units' && n < 60
   next_click.call; n += 1
 end
-chk(@detail_prompts.size == 2 && @detail_prompts[0].size == 5 && @detail_prompts[1].size == 4 && @detail_prompts[0].last.include?('plies') &&
-    @detail_prompts[1].none? { |pr| pr.start_with?('Head height') }, 'second pop-up fits the type: doors skip head height')
-chk(@prompts1.size == 3, 'first opening pop-up: centerline, mark, type')
 chk(popups.none? { |t| t.start_with?('Mark the kings') }, 'no header-mark step - students work out jack length')
 chk(@tips.none? { |t| t.include?('header mark') }, "jack pop-up gives no answer: #{@tips.first}")
 chk(popups.none? { |t| t =~ /header/i && t.include?('Lumber') }, 'header pop-up never asks the size again')

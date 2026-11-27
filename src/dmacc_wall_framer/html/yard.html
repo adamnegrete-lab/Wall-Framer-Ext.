@@ -162,10 +162,10 @@ function renderWall(w) {
     box.appendChild(ol);
   }
   if (w.stage === 'openings') box.appendChild(el('div', { 'class': 'btns' }, [
-    el('button', { text: w.openings ? 'Done with openings' : 'No openings in this wall', onclick: function () { call('openings_done'); } })]));
+    el('button', { 'class': 'primary', text: 'Enter openings', onclick: function () { call('openings_done'); } })]));
   if (w.editable && w.editable.length) box.appendChild(el('div', { 'class': 'btns' }, w.editable.map(function (o) {
     return el('button', { 'class': o.answered ? 'primary' : '', text: o.answered ? o.mark + ': RFI answered - update' : 'Edit ' + o.mark,
-      title: 'Open ' + o.mark + "'s pop-ups with what you entered", onclick: function () { call('edit_opening', { mark: o.mark }); } });
+      title: 'Open the Openings form for this wall', onclick: function () { call('edit_opening', { mark: o.mark }); } });
   })));
   if (w.removable && w.removable.length) box.appendChild(el('div', { 'class': 'btns' }, w.removable.map(function (m) {
     return el('button', { text: 'Remove ' + m, title: 'Take ' + m + ' off this wall (before it is framed)', onclick: function () { call('remove_opening', { mark: m }); } });

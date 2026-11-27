@@ -1,5 +1,5 @@
 {
-  "version": "0.13.8",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.8.rbz",
-  "notes": "Fixes: an opening can't land on a corner post or where a partition tees in; double plates on a 2-story model click the right floor; no crash editing a removed opening."
+  "version": "0.14.0",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.14.0.rbz",
+  "notes": "Openings are entered in one table per wall (it opens when the plates are done and stays open beside the Tape Measure). Adds header plies, positions from the arrow end, a No openings button. The tape/pencil click-through is gone."
 }
