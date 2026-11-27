@@ -35,7 +35,11 @@ PLANS = {
                   [5.5, 240.0, 234.5, 240.0, 'INT 2x4', []]] },
   'E' => { name: "2-story 24x20 with header RFIs", ext: [[0, 0], [288, 0], [288, 240], [0, 240]], runs: %w[through butt through butt],
            openings: { 0 => [['W1', 'Window', 96, 36, 48, 82.5, :rfi, nil]], 2 => [['D1', 'Door', 144, 38, 82.5, nil, '2x10', 3]] },
-           upper: { openings: { 0 => [['W5', 'Window', 96, 36, 48, 82.5, :rfi, nil]], 2 => [['W6', 'Window', 144, 36, 48, 82.5, '2x8', 3]] } } }
+           upper: { openings: { 0 => [['W5', 'Window', 96, 36, 48, 82.5, :rfi, nil]], 2 => [['W6', 'Window', 144, 36, 48, 82.5, '2x8', 3]] } } },
+  'F' => { name: "16x12 drawn clockwise (body outside?)", ext: [[0, 0], [0, 144], [192, 144], [192, 0]], runs: %w[through butt through butt],
+           openings: { 1 => [['W1', 'Window', 96, 36, 48, 82.5, '2x8', 3]] } },
+  'G' => { name: "bay with a 45-degree corner", ext: [[0, 0], [240, 0], [240, 96], [192, 144], [0, 144]], runs: %w[through butt through butt through],
+           openings: { 0 => [['W1', 'Window', 120, 36, 48, 82.5, '2x8', 3]] } }
 }.freeze
 KEY = ARGV[0] || 'A'
 PLAN = PLANS.fetch(KEY)
