@@ -6,6 +6,7 @@ include DMACC::WallFramer
 M = Sketchup.active_model; V = M.active_view
 def chk(c, m) = (puts((c ? 'PASS ' : 'FAIL ') + m); $f = true unless c)
 module Sketchup; class Group; def bounds = Geom::BoundingBox.new; end; end
+Project.update { |d| d['settings']['framing_table'] = false } # walls stay standing in this test
 fx = File.join(__dir__, 'fixtures', 'sfpa_fake.json')
 
 # import once -> a copy stays on this computer -> a model without tables gets them back

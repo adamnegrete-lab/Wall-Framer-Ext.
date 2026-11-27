@@ -2,6 +2,7 @@ require 'json'
 require_relative 'mock_sketchup'
 require_relative '../src/dmacc_wall_framer/main'
 include DMACC::WallFramer
+Project.update { |d| d['settings']['framing_table'] = false } # walls stay standing in this test
 M = Sketchup.active_model; V = M.active_view
 def chk(c, m) = (puts((c ? 'PASS ' : 'FAIL ') + m); $f = true unless c)
 g = Builder.create_wall(Geom::Point3d.new(0,0,0), Geom::Point3d.new(192,0,0), 'Level 1', 'EXT 2x6')

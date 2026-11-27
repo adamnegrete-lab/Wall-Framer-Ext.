@@ -54,7 +54,7 @@ module DMACC
         best = nil
         walls.each do |w|
           p = Builder.params_of(w)
-          inv = w.transformation.inverse
+          inv = Builder.home(w).inverse
           o = ray[0].transform(inv)
           v = ray[1].transform(inv)
           next if v.z.abs < 1e-9
@@ -133,7 +133,7 @@ module DMACC
           p = Builder.params_of(w)
           d = Framing.depth(p)
           len = p['length'].to_f
-          pts = [[0, 0], [len, 0], [len, d], [0, d]].map { |x, y| Geom::Point3d.new(x, y, 0).transform(w.transformation) }
+          pts = [[0, 0], [len, 0], [len, d], [0, d]].map { |x, y| Geom::Point3d.new(x, y, 0).transform(Builder.home(w)) }
           view.line_width = w == @hover ? 6 : 4
           view.drawing_color = COLORS[p['run']]
           view.draw(GL_LINE_LOOP, pts)
@@ -144,13 +144,13 @@ module DMACC
                   end
           label += "  #{Framing.fmt_len(len)}"
           label += '  <- click: ' + (p['run'] == 'through' ? 'butts' : 'runs through') if w == @hover
-          c = Geom::Point3d.new(len / 2, d / 2, 0).transform(w.transformation)
+          c = Geom::Point3d.new(len / 2, d / 2, 0).transform(Builder.home(w))
           view.draw_text(view.screen_coords(c), "#{p['id']}  #{label}")
           # layout end: where the tape hooks for the stud layout
           lx = Framing.from_end?(p) ? len : 0.0
           dir = Framing.from_end?(p) ? -1 : 1
           arrow = [[lx, d / 2], [lx + dir * 18, d / 2], [lx + dir * 12, d / 2 - 3], [lx + dir * 18, d / 2], [lx + dir * 12, d / 2 + 3]]
-                  .map { |ax, ay| Geom::Point3d.new(ax, ay, 0).transform(w.transformation) }
+                  .map { |ax, ay| Geom::Point3d.new(ax, ay, 0).transform(Builder.home(w)) }
           view.line_width = 2
           view.drawing_color = 'black'
           view.draw(GL_LINE_STRIP, arrow)

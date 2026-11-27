@@ -87,6 +87,7 @@
       <label for="shop_elevation">Shop drawing draws every member (off = plates and marks only)</label><input type="checkbox" id="shop_elevation">
       <label for="kerf">Saw kerf</label><input id="kerf" style="width:100px">
       <label for="jobsite_order">Enforce job-site order (plates, openings, opening units, commons, double plate)</label><input type="checkbox" id="jobsite_order">
+      <label for="framing_table">Framing table: frame each wall flat beside the house, then stand it up</label><input type="checkbox" id="framing_table">
       <label for="student_layout">Students lay out their own common studs</label><input type="checkbox" id="student_layout">
       <label for="guided">Pop-up framing (click a piece, enter its length; lumber pulled automatically)</label><input type="checkbox" id="guided">
       <label for="popup_tips">Pop-ups say how to measure each piece (not the answer)</label><input type="checkbox" id="popup_tips">
@@ -204,7 +205,7 @@ $('save').onclick = function () {
       show_layout_marks: $('show_layout_marks').checked,
       shop_letters: $('shop_letters').checked, shop_cutlist: $('shop_cutlist').checked,
       shop_elevation: $('shop_elevation').checked, kerf_text: $('kerf').value,
-      jobsite_order: $('jobsite_order').checked, guided: $('guided').checked, popup_tips: $('popup_tips').checked, student_layout: $('student_layout').checked, tape_readout: $('tape_readout').checked,
+      jobsite_order: $('jobsite_order').checked, framing_table: $('framing_table').checked, guided: $('guided').checked, popup_tips: $('popup_tips').checked, student_layout: $('student_layout').checked, tape_readout: $('tape_readout').checked,
       rfi_delay_min: parseFloat($('rfi_delay_min').value) || 32, ladder_oc: parseFloat($('ladder_oc').value) || 24
     };
   }
@@ -218,7 +219,7 @@ function load(state) {
   $('hdrs').innerHTML = ''; state.header_table.forEach(function (h) { $('hdrs').appendChild(hdrRow(h)); });
   $('feedback').innerHTML = ''; options($('feedback'), state.feedback_levels, state.settings.feedback);
   $('takeoff_feedback').value = state.settings.takeoff_feedback;
-  ['auto_cutlist', 'students_edit_setup', 'show_layout_marks', 'shop_letters', 'shop_cutlist', 'shop_elevation', 'jobsite_order', 'student_layout', 'tape_readout', 'guided', 'popup_tips'].forEach(function (k) { $(k).checked = !!state.settings[k]; });
+  ['auto_cutlist', 'students_edit_setup', 'show_layout_marks', 'shop_letters', 'shop_cutlist', 'shop_elevation', 'jobsite_order', 'framing_table', 'student_layout', 'tape_readout', 'guided', 'popup_tips'].forEach(function (k) { $(k).checked = !!state.settings[k]; });
   $('kerf').value = state.kerf_text;
   $('spans').innerHTML = ''; (state.span_table || []).forEach(function (h) { $('spans').appendChild(spanRow(h)); });
   $('span_conditions').value = state.span_conditions || '';

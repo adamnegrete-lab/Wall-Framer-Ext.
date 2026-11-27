@@ -124,7 +124,7 @@ module DMACC
         Builder.all_walls.each do |w|
           p = Builder.params_of(w)
           next unless p['level'] == @level
-          inv = w.transformation.inverse
+          inv = Builder.home(w).inverse
           lp = pt.transform(inv)
           len = p['length'].to_f
           d = Framing.depth(p)
@@ -140,7 +140,7 @@ module DMACC
         _, w, p, yf, lx = best
         hooks = face_hooks(w, p, yf)
         hook = hooks.min_by { |h| (h - lx).abs }
-        tr = w.transformation
+        tr = Builder.home(w)
         { wall: w, params: p, yf: yf, lx: lx, hook: hook, reading: (lx - hook).abs, dir: lx >= hook ? 1 : -1,
           pt: on_level(Geom::Point3d.new(lx, yf, 0).transform(tr)),
           hook_pt: on_level(Geom::Point3d.new(hook, yf, 0).transform(tr)) }
@@ -149,7 +149,7 @@ module DMACC
       # Where other walls' faces cross this face (inside corners), plus its ends.
       def face_hooks(w, p, yf)
         len = p['length'].to_f
-        inv = w.transformation.inverse
+        inv = Builder.home(w).inverse
         hooks = [0.0, len]
         Builder.all_walls.each do |o|
           next if o == w
@@ -157,8 +157,8 @@ module DMACC
           next unless op['level'] == @level
           olen = op['length'].to_f
           [0.0, Framing.depth(op)].each do |oy|
-            a = Geom::Point3d.new(0, oy, 0).transform(o.transformation).transform(inv)
-            b = Geom::Point3d.new(olen, oy, 0).transform(o.transformation).transform(inv)
+            a = Geom::Point3d.new(0, oy, 0).transform(Builder.home(o)).transform(inv)
+            b = Geom::Point3d.new(olen, oy, 0).transform(Builder.home(o)).transform(inv)
             next if (b.y - a.y).abs < 1e-6 # parallel
             t = (yf - a.y) / (b.y - a.y)
             next if t < -0.01 || t > 1.01
@@ -171,7 +171,7 @@ module DMACC
 
       # Where the line from @start (through pt) crosses the face f.
       def face_cross(f, pt)
-        inv = f[:wall].transformation.inverse
+        inv = Builder.home(f[:wall]).inverse
         a = @start.transform(inv)
         b = pt.transform(inv)
         return nil if (b.y - a.y).abs < 1e-6
@@ -179,7 +179,7 @@ module DMACC
         return nil if t <= 0
         x = a.x + (b.x - a.x) * t
         return nil if x < -1 || x > f[:params]['length'].to_f + 1
-        on_level(Geom::Point3d.new(x, f[:yf], 0).transform(f[:wall].transformation))
+        on_level(Geom::Point3d.new(x, f[:yf], 0).transform(Builder.home(f[:wall])))
       end
 
       # Snap the direction from @start to model X/Y, the previous wall,
@@ -194,7 +194,7 @@ module DMACC
         end
         cands = [[:x, X_AXIS], [:y, Y_AXIS]]
         if @prev
-          pd = @prev.transformation.xaxis
+          pd = Builder.home(@prev).xaxis
           cands << [:prev, Geom::Vector3d.new(pd.x, pd.y, 0)]
           cands << [:perp, Geom::Vector3d.new(-pd.y, pd.x, 0)]
         end
@@ -270,7 +270,7 @@ module DMACC
           return UI.beep unless d && d >= 0
           f = @face
           lx = f[:hook] + f[:dir] * d
-          pt = on_level(Geom::Point3d.new(lx, f[:yf], 0).transform(f[:wall].transformation))
+          pt = on_level(Geom::Point3d.new(lx, f[:yf], 0).transform(Builder.home(f[:wall])))
           @start = pt
           @first_pt = pt
           @first = nil
@@ -359,7 +359,7 @@ module DMACC
         Builder.all_walls.each do |w|
           p = Builder.params_of(w)
           next unless p['level'] == @level
-          c = Geom::Point3d.new(p['length'].to_f / 2, Framing.depth(p) / 2, 0).transform(w.transformation)
+          c = Geom::Point3d.new(p['length'].to_f / 2, Framing.depth(p) / 2, 0).transform(Builder.home(w))
           view.draw_text(view.screen_coords(c), p['id'])
         end
       rescue StandardError

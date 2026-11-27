@@ -217,11 +217,34 @@ def frame_wall(g)
   S.g = g
   id = Builder.params_of(g)['id']
   S.ops = WALL_OPS[id] || []
+  # first click: the wall goes to the framing table, lying flat
+  home0 = Builder.wall_shape(g)
+  click(g, 30, 50)
+  if Project.settings['framing_table']
+    unless Builder.on_table?(g)
+      finding("#{id}: first click didn't take it to the framing table")
+    else
+      t = g.transformation
+      finding("#{id}: on the table but not lying flat (z axis #{t.zaxis.to_a})") unless t.zaxis.z.abs < 1e-6 && t.yaxis.z < -0.99
+      finding("#{id}: its plan position changed when it went to the table") unless Builder.wall_shape(g) == home0
+      others = Builder.table_walls - [g]
+      finding("#{id}: another wall is still on the table: #{others.map { |w| Builder.params_of(w)['id'] }}") unless others.empty?
+    end
+  end
   400.times do
     p = Builder.params_of(g)
     st = Builder.stage(p)
     case st
-    when 'framed' then return true
+    when 'framed'
+      if Builder.on_table?(g) # the 'Stand it up?' question was answered No, or skipped
+        finding("#{id}: framed but still on the table after the stand-up question")
+        TOOL.stand_up(g)
+      end
+      t = g.transformation
+      h = Builder.home(g)
+      ok = (t.origin.x - h.origin.x).abs < 1e-6 && (t.origin.y - h.origin.y).abs < 1e-6 && t.zaxis.z > 0.99
+      finding("#{id}: stood up but not on its line") unless ok
+      return true
     when 'corners'
       finding("#{id}: stuck at corners")
       return false

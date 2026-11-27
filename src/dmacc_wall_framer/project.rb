@@ -30,6 +30,7 @@ module DMACC
           'shop_cutlist' => true,         # shop drawing includes the cut list
           'shop_elevation' => true,       # shop drawing draws every member
           'kerf' => 0.125,
+          'framing_table' => true,        # frame each wall flat beside the house, then stand it up
           'jobsite_order' => true,        # plates -> openings -> opening units -> commons -> double plate
           'student_layout' => true,       # students mark their own common-stud layout
           'tape_readout' => false,        # show a tape reading while marking (off = use Tape Measure)
@@ -47,7 +48,8 @@ module DMACC
         'dtp_seq' => nil,     # double plate pieces in the order they went on
         'rfis' => [],
         'notes' => [],        # job notes the instructor posts
-        'student_notes' => [], # field notes the student saves (numbers off the plans, etc.)
+        'student_notes' => [],
+        'catches' => [],       # mistakes the inspector caught: one per wall + piece, with how many times # field notes the student saves (numbers off the plans, etc.)
         'notes_seen_at' => 0, # Job Notes tab last opened
         'sfpa' => nil,        # header tables imported by the instructor (kept in the model, not the extension)         # requests for information (header sizes not on the plans)
         # Header span table for this assignment, entered by the instructor from the
@@ -249,6 +251,26 @@ module DMACC
             done << r.merge('answer' => ans['text'])
           end
           done
+        end
+
+        # Log every real mistake an inspection catches (not blanks). One record per wall + piece.
+        # Returns how many NEW catches this inspection added.
+        def log_catches(wall_id, issues)
+          added = 0
+          update do |d|
+            d['catches'] ||= []
+            issues.each do |i|
+              rec = d['catches'].find { |c| c['wall'] == wall_id && c['slot'] == i[:slot_id] }
+              if rec
+                rec['times'] = rec['times'].to_i + 1
+              else
+                d['catches'] << { 'wall' => wall_id, 'slot' => i[:slot_id], 'label' => i[:label], 'message' => i[:message],
+                                  'times' => 1, 'at' => Time.now.to_i }
+                added += 1
+              end
+            end
+          end
+          added
         end
 
         # Instructor answers by hand (no span table row, or a different call).

@@ -161,6 +161,12 @@ function renderWall(w) {
     });
     box.appendChild(ol);
   }
+  var FRAMING = ['plates', 'openings', 'units', 'commons', 'cripples'];
+  if (w.on_table && w.stage === 'framed') box.appendChild(el('div', { 'class': 'btns' }, [
+    el('button', { 'class': 'primary', text: 'Stand it up', title: 'Raise the wall and set it on its chalk line', onclick: function () { call('stand_up'); } })]));
+  else if (w.on_table) box.appendChild(el('div', { 'class': 'note', text: 'On the framing table - lying flat, bottom plate toward you.' }));
+  else if (S.framing_table && FRAMING.indexOf(w.stage) >= 0) box.appendChild(el('div', { 'class': 'btns' }, [
+    el('button', { text: 'Bring to the framing table', onclick: function () { call('to_table'); } })]));
   if (w.stage === 'openings') box.appendChild(el('div', { 'class': 'btns' }, [
     el('button', { 'class': 'primary', text: 'Enter openings', onclick: function () { call('openings_done'); } })]));
   if (w.editable && w.editable.length) box.appendChild(el('div', { 'class': 'btns' }, w.editable.map(function (o) {

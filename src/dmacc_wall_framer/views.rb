@@ -21,6 +21,22 @@ module DMACC
           nil
         end
 
+        # Straight down on a wall lying on the framing table, bottom plate toward you.
+        def table(g)
+          save unless @saved
+          p = Builder.params_of(g)
+          len = p['length'].to_f
+          h = p['height'].to_f
+          c = Geom::Point3d.new(len / 2.0, 0, h / 2.0).transform(g.transformation)
+          view = Sketchup.active_model.active_view
+          cam = Sketchup::Camera.new(Geom::Point3d.new(c.x, c.y, c.z + 3000), c, Y_AXIS)
+          cam.perspective = false
+          cam.height = [len, h].max * 1.25 if cam.respond_to?(:height=)
+          view.camera = cam
+        rescue StandardError => e
+          puts "table view: #{e.message}"
+        end
+
         # Orthographic view straight down, like a floor plan.
         def plan(elev = 0.0)
           view = Sketchup.active_model.active_view

@@ -16,6 +16,7 @@ rescue StandardError => e
   finding("#{name}: CRASH #{e.class}: #{e.message} @ #{e.backtrace.find { |l| l.include?('dmacc_wall_framer') }}")
 end
 Project.import_sfpa(File.join(__dir__, 'fixtures', 'sfpa_fake.json'))
+Project.update { |d| d['settings']['framing_table'] = false } # these cases are about the framing steps, not the table
 
 def box(w, h, type = 'EXT 2x6', x0 = 0, y0 = 0)
   t = DrawWallTool.new('Level 1', type); t.activate

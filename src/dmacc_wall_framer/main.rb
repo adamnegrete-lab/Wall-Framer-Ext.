@@ -153,6 +153,7 @@ module DMACC
           Graded: #{Time.now.strftime('%Y-%m-%d %H:%M')}</div>
           <h2>Scores by area</h2><ul>#{rows}</ul>
           <p>Walls matched: #{res['walls_matched']} of #{res['walls_in_key']}. Inspections requested: #{res['inspections']}. Takeoff checks: #{res['takeoff_checks']}.</p>
+          <h2>Inspector catches</h2>#{catches_html}
           <h2>Differences from the key</h2>#{notes}
           <h2>Double top plate interlock</h2>#{interlock_html}
           <h2>RFIs</h2>#{rfi_html}
@@ -171,6 +172,21 @@ module DMACC
         return '<p>No joints between walls.</p>' if rows.empty?
         ok = rows.count { |r| r['ok'] }
         "<p>#{ok} of #{rows.size} joints interlocked.</p><ul>" + rows.reject { |r| r['ok'] }.map { |r| "<li>#{h(r['text'])}</li>" }.join + '</ul>'
+      end
+
+      # Mistakes the inspector caught along the way (fixed or not). Inspection is optional,
+      # so this is what separates right-the-first-time from fixed-after-inspection.
+      def catches_html
+        cs = Project.data['catches'] || []
+        members = Builder.all_walls.sum { |w| Builder.work_slots(Builder.params_of(w)).size }
+        caught = cs.size
+        first = members.positive? ? ((members - caught).clamp(0, members) * 100.0 / members).round(1) : 100.0
+        head = "<p><strong>First-time right: #{first}%</strong> (#{members - caught} of #{members} framing locations never flagged). " \
+               "Mistakes caught: #{caught}#{cs.any? { |c| c['times'].to_i > 1 } ? " - #{cs.count { |c| c['times'].to_i > 1 }} caught more than once" : ''}.</p>"
+        return head + '<p>None - nothing the inspector flagged.</p>' if cs.empty?
+        head + '<ul>' + cs.sort_by { |c| [c['wall'], c['label'].to_s] }.map do |c|
+          "<li>#{h(c['wall'])} #{h(c['label'])}: #{h(c['message'])}#{c['times'].to_i > 1 ? " (caught #{c['times']} times)" : ''}</li>"
+        end.join + '</ul>'
       end
 
       def field_notes_html

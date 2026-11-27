@@ -120,6 +120,11 @@ module DMACC
         Builder.close_edits
         pick(view, x, y)
         fg = @focus && Builder.find_wall(@focus)
+        # A wall you start framing goes to the framing table first (frame it flat, then stand it up)
+        if @mode != :dtp && fg && to_table?(fg)
+          to_table(fg)
+          return
+        end
         if @mode != :dtp && fg && Builder.stage(Builder.params_of(fg)) == 'openings'
           Dialogs.open_frame(fg)
           Sketchup.status_text = "#{@focus}: enter its openings from the plans in the Openings form (or click 'No openings in this wall')."
@@ -175,6 +180,43 @@ module DMACC
         stage = Builder.stage(Builder.params_of(g))
         nxt = stage == 'openings' ? 'Click the mark to lay out the opening on it.' : 'Click the mark to put a stud on it.'
         Sketchup.status_text = err || "#{msg} #{nxt}"
+      end
+
+      FRAMING_STAGES = %w[plates openings units commons cripples].freeze
+
+      def to_table?(g)
+        Project.settings['framing_table'] && !Builder.on_table?(g) && FRAMING_STAGES.include?(Builder.stage(Builder.params_of(g)))
+      end
+
+      def to_table(g)
+        id = Builder.params_of(g)['id']
+        back = Builder.table_walls.map { |w| Builder.params_of(w)['id'] }
+        m = Sketchup.active_model
+        m.start_operation("#{id} to the Framing Table", true)
+        Builder.lay_down(g)
+        m.commit_operation
+        Views.table(g)
+        focus(id)
+        Sketchup.status_text = "#{id} is on the framing table, lying flat with the bottom plate toward you. Frame it, then stand it up." +
+                               (back.empty? ? '' : " (#{back.join(', ')} went back on its line, unfinished.)")
+        Dialogs.open_frame(g) if Builder.stage(Builder.params_of(g)) == 'openings'
+        Dialogs.refresh_yard
+        Sketchup.active_model.active_view.invalidate
+      end
+
+      # Raise it and set it on its chalk line.
+      def stand_up(g)
+        id = Builder.params_of(g)['id']
+        m = Sketchup.active_model
+        m.start_operation("Stand Up #{id}", true)
+        Builder.stand_up(g)
+        m.commit_operation
+        Views.restore
+        rest = Builder.all_walls.reject { |w| Builder.stage(Builder.params_of(w)) == 'framed' }.map { |w| Builder.params_of(w)['id'] }
+        Sketchup.status_text = "#{id} is standing on its line. " +
+                               (rest.empty? ? 'Every wall is up - double top plates next.' : "Next wall: click one to bring it to the table (#{rest.first(4).join(', ')}).")
+        Dialogs.refresh_yard
+        Sketchup.active_model.active_view.invalidate
       end
 
       # Nothing in the Frame tool takes a typed number now (openings go in the Openings form).
@@ -597,8 +639,14 @@ module DMACC
           UI.messagebox("#{id}: studs are in.\n\nNext: cripples and header blocks. They land on your stud layout - " \
                         'click each spot above the headers and under the sills.')
         when 'framed'
-          UI.messagebox("#{id} is framed.\n\nRequest an inspection from the Framing panel. Double top plates go on " \
-                        'once every wall on this level is framed and standing.')
+          if Builder.on_table?(g)
+            r = UI.messagebox("#{id} is framed.\n\nStand it up and set it on its line now? (Inspect it first if you want - " \
+                              "it's easier to fix while it's flat. You can stand it up later from the Framing Panel.)", MB_YESNO)
+            stand_up(g) if r == IDYES
+          else
+            UI.messagebox("#{id} is framed.\n\nRequest an inspection from the Framing panel. Double top plates go on " \
+                          'once every wall on this level is framed and standing.')
+          end
         end
         Dialogs.refresh_yard
       end
@@ -634,6 +682,13 @@ module DMACC
         ws = Builder.work_slots(p)
         if stage == 'openings'
           menu.add_item("Enter openings for #{id}") { Dialogs.open_frame(g) }
+        end
+        if Builder.on_table?(g)
+          if stage == 'framed'
+            menu.add_item("Stand #{id} up and set it on its line") { stand_up(g) }
+          else
+            menu.add_item("Put #{id} back on its line (unfinished)") { stand_up(g) }
+          end
         end
         if %w[openings units].include?(stage)
           p['openings'].each do |o|

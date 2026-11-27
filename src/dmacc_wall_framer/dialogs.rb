@@ -58,6 +58,11 @@ module DMACC
           end
           @frame = make('Frame Wall', 'frame.html', 900, 720, 'frame')
           d = @frame
+          if Builder.on_table?(wall) && !@docked && d.respond_to?(:set_position)
+            d.set_size(820, 700) if d.respond_to?(:set_size)
+            d.set_position(10, 110)
+            @docked = true
+          end
           d.add_action_callback('ready') { |_c, _a| send_frame }
           d.add_action_callback('save_openings') { |_c, a| save_openings(JSON.parse(a)) }
           d.add_action_callback('save_entries') { |_c, a| save_entries(JSON.parse(a)['entries']) }
@@ -276,8 +281,14 @@ module DMACC
           p['last_inspection'] = res
           Builder.set_params(g, p)
           Builder.rebuild(g)
+          # a catch = something nailed in wrong (or a bad splice); a piece that just isn't in yet isn't a mistake
+          ents = p['entries'] || {}
+          caught = full['issues'].select { |i| Inspector.complete?(ents[i.slot_id]) || i.slot_id.to_s.start_with?('SPLICE:') }
+          added = Project.log_catches(p['id'], caught.map { |i| { slot_id: i.slot_id, label: i.label, message: i.message } })
+          note = added.positive? ? " #{added} mistake#{added == 1 ? '' : 's'} caught by the inspector - logged for grading." : ''
           Project.log_inspection('wall' => p['id'], 'correct' => full['correct'], 'total' => full['total'],
-                                 'wrong' => full['wrong'], 'blank' => full['blank'], 'summary' => res['summary'])
+                                 'wrong' => full['wrong'], 'blank' => full['blank'], 'summary' => "#{res['summary']}#{note}")
+          res['summary'] = "#{res['summary']}#{note}"
           res
         end
 
@@ -528,6 +539,18 @@ module DMACC
             open_frame(g)
             send_yard
           end
+          d.add_action_callback('stand_up') do |_c, _a|
+            g = focus_group or next
+            activate_tool
+            @tool.stand_up(g) if @tool.respond_to?(:stand_up)
+            send_yard
+          end
+          d.add_action_callback('to_table') do |_c, _a|
+            g = focus_group or next
+            activate_tool
+            @tool.to_table(g) if @tool.respond_to?(:to_table) && @tool.to_table?(g)
+            send_yard
+          end
           d.add_action_callback('remove_opening') do |_c, a|
             g = focus_group or next
             activate_tool
@@ -606,7 +629,7 @@ module DMACC
         end
 
         def top_view
-          Views.plan(Builder.all_walls.map { |w| w.transformation.origin.z }.min.to_f)
+          Views.plan(Builder.all_walls.map { |w| Builder.home(w).origin.z }.min.to_f)
         end
 
         def refresh_yard
@@ -639,6 +662,7 @@ module DMACC
           ]
           { 'id' => p['id'], 'type' => p['type'], 'level' => p['level'], 'framed' => framed, 'total' => slots.size,
             'stage' => Builder.stage(p), 'openings' => p['openings'].size,
+            'on_table' => Builder.on_table?(g),
             'editable' => p['openings'].reject { |o| slots.any? { |sl| sl.opening == o['mark'] && Inspector.complete?((p['entries'] || {})[sl.id]) } }
                                        .map { |o| { 'mark' => o['mark'], 'answered' => !!o['rfi_new'] } },
             'removable' => if %w[openings units].include?(Builder.stage(p))
@@ -662,6 +686,7 @@ module DMACC
                'guided' => !!Project.settings['guided'],
                'building' => building_state,
                'rfis' => rfi_state,
+               'framing_table' => !!Project.settings['framing_table'],
                'notes' => job_notes,
                'walls' => walls_list,
                'stock' => y['stock'], 'cut_text' => y['cut'] ? len_text(y['cut']) : '',
@@ -812,6 +837,7 @@ module DMACC
               p['level'] = lv['name'] if lv
               Builder.apply_type(p, ty.reject { |k, _| k == 'orig' }) if ty
               Builder.set_params(w, p)
+              Builder.stand_up(w) if lv && Builder.on_table?(w)
               if lv
                 o = w.transformation.origin
                 dz = lv['elev'].to_f - o.z.to_f

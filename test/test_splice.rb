@@ -6,6 +6,7 @@ include DMACC::WallFramer
 M = Sketchup.active_model; V = M.active_view
 def chk(c, m) = (puts((c ? 'PASS ' : 'FAIL ') + m); $f = true unless c)
 module Sketchup; class Group; def bounds = Geom::BoundingBox.new; end; end
+Project.update { |d| d['settings']['framing_table'] = false } # walls stay standing in this test
 g = Builder.create_wall(Geom::Point3d.new(0, 0, 0), Geom::Point3d.new(240, 0, 0), 'Level 1', 'EXT 2x6') # 20'
 Dialogs.activate_tool; tool = Dialogs.tool; tool.activate
 face = ->(x, z) { V.ray = [Geom::Point3d.new(x, -60, z).transform(g.transformation), Geom::Vector3d.new(0, 1, 0).transform(g.transformation)] }

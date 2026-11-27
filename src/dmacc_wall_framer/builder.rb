@@ -42,6 +42,64 @@ module DMACC
         group.locked = true if group.respond_to?(:locked=)
       end
 
+      # ---------- framing table: frame it flat beside the house, then stand it up ----------
+
+      # Where the wall belongs (its chalk line). A wall out on the framing table keeps its
+      # home in its params; everything about the plan (corners, tees, spans, grading) reads this.
+      def home(g)
+        h = params_of(g)['home']
+        return g.transformation unless h
+        x = Geom::Vector3d.new(*h['x'])
+        Geom::Transformation.axes(Geom::Point3d.new(*h['o']), x, Z_AXIS * x, Z_AXIS)
+      end
+
+      def on_table?(g)
+        !!params_of(g)['home']
+      end
+
+      def table_walls
+        all_walls.select { |w| on_table?(w) }
+      end
+
+      # Lying flat beside the house, outside face up, bottom plate toward the viewer.
+      def table_transform(g)
+        p = params_of(g)
+        pts = all_walls.reject { |w| w == g }.flat_map { |w| endpoints(w) }
+        pts += endpoints(g)
+        xmax = pts.map { |pt| pt.x.to_f }.max || 0.0
+        ymin = pts.map { |pt| pt.y.to_f }.min || 0.0
+        elev = home(g).origin.z.to_f
+        o = Geom::Point3d.new(xmax + 120, ymin, elev + Framing.depth(p))
+        Geom::Transformation.axes(o, Geom::Vector3d.new(1, 0, 0), Geom::Vector3d.new(0, 0, -1), Geom::Vector3d.new(0, 1, 0))
+      end
+
+      def move_group(g, t)
+        g.locked = false if g.respond_to?(:locked=)
+        g.transformation = t
+        lock(g)
+      end
+
+      # Take a wall to the framing table (any other unframed wall there goes back to its line).
+      def lay_down(g)
+        return if on_table?(g)
+        table_walls.each { |w| stand_up(w) }
+        t = g.transformation
+        p = params_of(g)
+        p['home'] = { 'o' => t.origin.to_a.map(&:to_f), 'x' => t.xaxis.to_a.map(&:to_f) }
+        set_params(g, p)
+        move_group(g, table_transform(g))
+      end
+
+      # Raise it and set it on its chalk line.
+      def stand_up(g)
+        return unless on_table?(g)
+        t = home(g)
+        p = params_of(g)
+        p.delete('home')
+        set_params(g, p)
+        move_group(g, t)
+      end
+
       # ---------- finding walls ----------
 
       def wall?(ent)
@@ -213,11 +271,15 @@ module DMACC
           len = r['e'] - s
           next if (len - p['length'].to_f).abs < 1e-6 && (s - p['s0'].to_f).abs < 1e-6 && p['layout']
           delta = s - p['s0'].to_f
-          a = Geom::Point3d.new(l['p1'][0], l['p1'][1], w.transformation.origin.z)
+          a = Geom::Point3d.new(l['p1'][0], l['p1'][1], home(w).origin.z)
           u = Geom::Vector3d.new(l['p2'][0] - l['p1'][0], l['p2'][1] - l['p1'][1], 0)
           u.normalize!
           o = a.offset(u, s)
-          w.transformation = Geom::Transformation.axes(o, u, Z_AXIS * u, Z_AXIS)
+          if p['home'] # out on the framing table: its chalk line moves, the wall stays put
+            p['home'] = { 'o' => o.to_a.map(&:to_f), 'x' => u.to_a.map(&:to_f) }
+          else
+            w.transformation = Geom::Transformation.axes(o, u, Z_AXIS * u, Z_AXIS)
+          end
           p['layout'] = l
           p['s0'] = s
           p['length'] = len
@@ -450,7 +512,7 @@ module DMACC
 
       def wall_shape(g)
         p = params_of(g)
-        t = g.transformation
+        t = home(g)
         { 'id' => p['id'], 'o' => [t.origin.x.to_f, t.origin.y.to_f], 'dir' => [t.xaxis.x.to_f, t.xaxis.y.to_f],
           'len' => p['length'].to_f, 'depth' => Framing.depth(p), 'elev' => t.origin.z.to_f, 'level' => p['level'] }
       end
@@ -514,7 +576,8 @@ module DMACC
           p = params_of(w)
           e = p['entries'] || {}
           open = work_slots(p).reject { |s| s.id == 'TP:2' || Inspector.slot_done?(s, e[s.id]) }
-          open.empty? ? nil : "#{p['id']} (#{open.size} open)"
+          next "#{p['id']} (#{open.size} open)" unless open.empty?
+          on_table?(w) ? "#{p['id']} (still on the framing table - stand it up)" : nil
         end.compact
       end
 
@@ -888,16 +951,20 @@ module DMACC
         p['last_inspection'] = nil
         errs = Framing.validate(p, Project.header_table)
         return errs unless errs.empty?
-        t = group.transformation
+        t = home(group)
         o = t.origin.offset(t.xaxis, delta)
-        group.transformation = Geom::Transformation.axes(o, t.xaxis, t.yaxis, t.zaxis)
+        if p['home']
+          p['home'] = { 'o' => o.to_a.map(&:to_f), 'x' => t.xaxis.to_a.map(&:to_f) }
+        else
+          group.transformation = Geom::Transformation.axes(o, t.xaxis, t.yaxis, t.zaxis)
+        end
         set_params(group, p)
         rebuild(group)
         []
       end
 
       def plan_dir(group)
-        x = group.transformation.xaxis
+        x = home(group).xaxis
         [x.x.to_f, x.y.to_f]
       end
 
@@ -999,6 +1066,7 @@ module DMACC
         all_walls.each do |w|
           p = params_of(w)
           next unless p['level'] == level['name']
+          stand_up(w) if on_table?(w)
           o = w.transformation.origin
           w.transform!(Geom::Transformation.translation([0, 0, level['elev'].to_f - o.z]))
         end
@@ -1113,7 +1181,7 @@ module DMACC
 
       def endpoints(group)
         p = params_of(group)
-        t = group.transformation
+        t = home(group)
         a = t.origin
         b = a.offset(t.xaxis, p['length'].to_f)
         [a, b]
@@ -1123,12 +1191,12 @@ module DMACC
       def floor_above?(group)
         p = params_of(group)
         lv = Project.level(p['level'])
-        elev = lv ? lv['elev'].to_f : group.transformation.origin.z.to_f
+        elev = lv ? lv['elev'].to_f : home(group).origin.z.to_f
         all_walls.any? do |w|
           q = params_of(w)
           next false if q['level'] == p['level']
           ql = Project.level(q['level'])
-          (ql ? ql['elev'].to_f : w.transformation.origin.z.to_f) > elev + 12
+          (ql ? ql['elev'].to_f : home(w).origin.z.to_f) > elev + 12
         end
       end
 
@@ -1136,13 +1204,13 @@ module DMACC
       # across the wall (outside of the walls on this level, perpendicular to it).
       def building_span(group)
         p = params_of(group)
-        t = group.transformation
+        t = home(group)
         ax = t.xaxis
         n = [-ax.y.to_f, ax.x.to_f] # across the wall, in plan
         vals = all_walls.select { |w| params_of(w)['level'] == p['level'] }.flat_map do |w|
           a, b = endpoints(w)
           d = Framing.depth(params_of(w))
-          wt = w.transformation
+          wt = home(w)
           off = [-wt.xaxis.y.to_f * d, wt.xaxis.x.to_f * d]
           [a, b].flat_map { |pt| [[pt.x.to_f, pt.y.to_f], [pt.x.to_f + off[0], pt.y.to_f + off[1]]] }
         end.map { |x, y| x * n[0] + y * n[1] }
@@ -1151,7 +1219,7 @@ module DMACC
 
       def snapshot_wall(group)
         p = params_of(group)
-        t = group.transformation
+        t = home(group)
         a, b = endpoints(group)
         table = Project.header_table
         {

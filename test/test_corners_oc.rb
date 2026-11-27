@@ -5,6 +5,7 @@ include DMACC::WallFramer
 M = Sketchup.active_model; V = M.active_view
 def chk(c, m) = (puts((c ? 'PASS ' : 'FAIL ') + m); $f = true unless c)
 module Sketchup; class Group; def bounds = Geom::BoundingBox.new; end; end
+Project.update { |d| d['settings']['framing_table'] = false } # walls stay standing in this test
 t = DrawWallTool.new('Level 1', 'EXT 2x6'); t.activate
 t.onLButtonDown(0, 0, 0, V)
 t.onMouseMove(0, 100, 0, V); t.onUserText("16'", V)
