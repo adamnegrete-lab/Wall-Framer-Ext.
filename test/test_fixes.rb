@@ -84,7 +84,9 @@ chk(Dialogs.rfi_state.first['status'].include?('min'), "instructor sees the time
 Project.update { |d| d['rfis'][0]['at'] -= 33 * 60 }
 done = Project.release_rfis
 o7 = Builder.params_of(s)['openings'].first
-chk(done.size == 1 && o7['header'] == '2x8' && o7['plies'] == 2 && !o7['rfi'], "answered from the span table after 32 min: #{done.first && done.first['answer']}")
+chk(done.size == 1 && done.first['answer'].include?('(2) 2x8') && o7['rfi_new'] == 1 && o7['header'] == Framing::RFI,
+    "answered after 32 min, waiting for the student to update W7: #{done.first && done.first['answer']}")
+p = Builder.params_of(s); p['openings'][0] = p['openings'][0].merge('header' => '2x8', 'plies' => 2).reject { |k, _| %w[rfi rfi_new].include?(k) }; Builder.set_params(s, p)
 # non-bearing wall: flat
 cl = id.('W-105')
 n2 = Project.submit_rfi('W-105', 'D5', 'Header for D5?')
@@ -92,7 +94,8 @@ p = Builder.params_of(cl)
 p['openings'] = [{ 'mark' => 'D5', 'type' => 'Door', 'x' => 40.0, 'width' => 30.0, 'height' => 82.5, 'sill' => 0, 'header' => Framing::RFI, 'rfi' => n2 }]
 Builder.set_params(cl, p)
 done = Project.release_rfis(n2)
-chk(done.size == 1 && Builder.params_of(cl)['openings'].first['header'] == Framing::FLAT, 'instructor answers early; non-bearing gets (2) 2x4 flat')
+chk(done.size == 1 && done.first['answer'].include?('(2) 2x4 flat'), 'instructor answers early; non-bearing gets (2) 2x4 flat')
+p = Builder.params_of(cl); p['openings'][0] = p['openings'][0].merge('header' => Framing::FLAT).reject { |k, _| %w[rfi rfi_new].include?(k) }; Builder.set_params(cl, p)
 html = DMACC::WallFramer.rfi_html
 chk(html.include?('#1') && html.include?('#2') && html.include?('flat'), 'RFIs logged in the grade report')
 

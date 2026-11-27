@@ -53,7 +53,8 @@ chk(Project.settings['rfi_delay_min'].to_f == 1.0, 'test delay is 1 minute')
 Project.update { |dd| dd['rfis'][0]['at'] -= 61 }
 done = Project.release_rfis
 o = Builder.params_of(s)['openings'].first
-chk(done.size == 1 && o['header'] == '2x10' && o['plies'] == 1 && o['jacks'].nil?, 'RFI answered: size + plies; jacks stay on the Habitat rule')
+chk(done.size == 1 && done.first['answer'] == 'W1: use (1) 2x10.' && o['rfi_new'] && o['jacks'].nil?, 'RFI answered: size + plies; jacks stay on the Habitat rule')
+chk(Builder.gate_reason(Builder.params_of(s), hs).to_s.include?('update the opening'), 'still on hold until the student updates W1')
 # glulam / too wide -> waits for the instructor
 o2 = { 'mark' => 'W9', 'type' => 'Window', 'x' => 20.0, 'width' => 150.0, 'height' => 82.5, 'sill' => 34.5, 'header' => Framing::RFI }
 chk(Project.sfpa_answer(s, o2).nil?, 'glulam sizes wait for the instructor')

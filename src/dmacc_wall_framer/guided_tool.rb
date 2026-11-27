@@ -400,20 +400,15 @@ module DMACC
       def read_rfi_answer(g, op)
         r = (Project.data['rfis'] || []).find { |x| x['n'] == op['rfi_new'] }
         UI.messagebox("RFI ##{op['rfi_new']} - #{op['mark']}\n\nQ: #{r && r['question']}\n\nA: #{r && r['answer']}\n\n" \
-                      "#{op['mark']} is off hold. It's saved in Job Notes (Framing panel) if you need it again.")
-        m = Sketchup.active_model
-        m.start_operation('Read RFI Answer', true, false, true)
-        p = Builder.params_of(g)
-        p['openings'] = p['openings'].map { |o| o['mark'] == op['mark'] ? o.reject { |k, _| k == 'rfi_new' } : o }
-        Builder.set_params(g, p)
-        m.commit_operation
+                      "Next: update #{op['mark']} with the answer. (It's saved in Job Notes if you need it again.)")
+        opening_popup(g, nil, edit: op['mark'])
         Dialogs.refresh_yard
       end
 
       # Tags on openings: on hold (RFI out) / RFI answered (click to read)
       def draw_opening_tags(view, g, p)
         p['openings'].each do |o|
-          txt = if o['rfi_new'] then "#{o['mark']}: RFI answered - click to read"
+          txt = if o['rfi_new'] then "#{o['mark']}: RFI answered - click to update"
                 elsif o['header'] == Framing::RFI then "#{o['mark']}: ON HOLD - #{o['rfi'] ? "RFI ##{o['rfi']} out" : 'RFI not sent'}"
                 end
           next unless txt
@@ -484,10 +479,13 @@ module DMACC
       end
 
       # Two pop-ups: what it is, then what the plans say about it (doors have no head height).
-      def opening_popup(g, center = nil)
+      # edit: the mark of an opening already laid out - its pop-ups open with what was entered.
+      def opening_popup(g, center = nil, edit: nil)
         p = Builder.params_of(g)
-        title = "Lay out an opening - #{p['id']}"
-        v1 = [center ? Framing.fmt_len(Framing.layout_dist(p, center)) : '', '', @last['otype'] || 'Window']
+        old = edit && p['openings'].find { |o| o['mark'] == edit }
+        title = old ? "Edit #{edit} - #{p['id']}" : "Lay out an opening - #{p['id']}"
+        center = old['x'].to_f + old['width'].to_f / 2.0 if old
+        v1 = [center ? Framing.fmt_len(Framing.layout_dist(p, center)) : '', old ? old['mark'] : '', old ? old['type'] : (@last['otype'] || 'Window')]
         loop do
           r1 = UI.inputbox(["Centerline from #{tape_end(p)}", 'Mark (from the plans)', 'Type'], v1, ['', '', 'Window|Door'], title)
           return unless r1
@@ -496,7 +494,7 @@ module DMACC
           errs = []
           errs << "Couldn't read the centerline distance." unless c && c > 0 && c < p['length'].to_f
           errs << 'Enter the mark from the plans (W1, D2...).' if mark.empty?
-          used = Builder.all_walls.flat_map { |x| Builder.params_of(x)['openings'].map { |o| o['mark'] } }
+          used = Builder.all_walls.flat_map { |x| Builder.params_of(x)['openings'].map { |o| o['mark'] } } - [edit]
           errs << "#{mark} is already used." if used.include?(mark)
           unless errs.empty?
             UI.messagebox("Fix these:\n\n" + errs.join("\n"))
@@ -506,25 +504,27 @@ module DMACC
           type = r1[2]
           @last['otype'] = type
           center = Framing.from_end?(p) ? p['length'].to_f - c : c
-          return if opening_details(g, p, mark, type, center, title) != :back
+          return if opening_details(g, p, mark, type, center, title, old) != :back
           v1 = r1
         end
       end
 
-      def opening_details(g, p, mark, type, center, title)
+      def opening_details(g, p, mark, type, center, title, old = nil)
         win = type == 'Window'
         dflt_hdr = !p['bearing'] && !win ? HDR_FLAT : HDR_PICK
         prompts = ['Rough opening width',
                    win ? 'Rough opening height (sill to header)' : 'Rough opening height (subfloor to header)']
-        vals = ['', '']
+        vals = old ? [Framing.fmt_len(old['width'].to_f), Framing.fmt_len(Framing.ro_height(old))] : ['', '']
         lists = ['', '']
         if win
           prompts << 'Head height - bottom of header from subfloor'
-          vals << (@last['head'] || '82 1/2')
+          vals << (old && old['type'] == 'Window' ? Framing.fmt_len(old['height'].to_f) : (@last['head'] || '82 1/2'))
           lists << ''
         end
         prompts << 'Header (from the plans / general notes)' << 'Header plies (from the plans)'
-        vals << dflt_hdr << PLY_PICK
+        # an answered RFI: the student fills in the header from the answer
+        old_hdr = old && !(old['header'] == Framing::RFI && old['rfi_new']) ? Framing.header_choice(old['header']) : nil
+        vals << (old_hdr || dflt_hdr) << (old && old['plies'] && old_hdr ? old['plies'].to_s : PLY_PICK)
         lists << header_choices.join('|') << ([PLY_PICK] + %w[1 2 3]).join('|')
         loop do
           res = UI.inputbox(prompts, vals, lists, "#{mark} (#{type}) - #{title}")
@@ -547,7 +547,8 @@ module DMACC
                    'header' => hdr }.merge(Framing.opening_from_ro(type, h, head))
             op['plies'] = plies if Framing::SIZES.include?(hdr)
             @last['head'] = res[2] if win
-            test = p.merge('openings' => p['openings'] + [op])
+            others = p['openings'].reject { |o| old && o['mark'] == old['mark'] }
+            test = p.merge('openings' => others + [op])
             errs = Framing.validate(test, Project.header_table)
           end
           unless errs.empty?
@@ -556,6 +557,21 @@ module DMACC
             next
           end
           model = Sketchup.active_model
+          if old
+            # keep the RFI number only if it's still waiting on an RFI
+            op['rfi'] = old['rfi'] if hdr == Framing::RFI && old['rfi'] && !old['rfi_new']
+            model.start_operation("Edit #{old['mark']}", true)
+            p = Builder.params_of(g)
+            p['openings'] = p['openings'].map { |o| o['mark'] == old['mark'] ? op : o }
+            Builder.set_params(g, p)
+            Builder.rebuild(g)
+            model.commit_operation
+            Sketchup.status_text = hdr == Framing::RFI ? "#{mark} updated - still on hold." : "#{mark} updated#{old['header'] == Framing::RFI ? ' - off hold, frame it' : ''}."
+            Dialogs.refresh_yard
+            Dialogs.refresh_frame
+            Dialogs.open_rfi(p['id'], mark) if hdr == Framing::RFI && !op['rfi']
+            return :done
+          end
           model.start_operation('Add Opening', true)
           p = Builder.params_of(g)
           p['openings'] = p['openings'] + [op]
@@ -623,9 +639,9 @@ module DMACC
             m.commit_operation
           end
         end
-        if @target && king_needs_mark?(@target[2], @target[1]) && (@target[2]['hdr_marks'] || {})[@target[1].opening]
-          g, slot, p = @target
-          menu.add_item("Change #{slot.opening} header mark") { header_mark_popup(g, slot, Builder.params_of(g)) }
+        if @target && @target[1].opening && editable?(@target[2], @target[1].opening)
+          g, slot, = @target
+          menu.add_item("Edit opening #{slot.opening}") { opening_popup(g, nil, edit: slot.opening) }
         end
         super(menu, flags, nil, nil, nil)
         wall_items(menu)
@@ -657,6 +673,12 @@ module DMACC
             Dialogs.refresh_yard
           end
         end
+      end
+
+      # Openings can be edited until any piece of them is framed.
+      def editable?(p, mark)
+        e = p['entries'] || {}
+        Builder.work_slots(p).none? { |s| s.opening == mark && Inspector.complete?(e[s.id]) }
       end
 
       def finish_openings(g)

@@ -40,7 +40,13 @@ chk(o['rfi_new'] == n, 'opening tagged "RFI answered - click to read"')
 
 # clicking the opening shows the answer once
 Dialogs.activate_tool; tool = Dialogs.tool; tool.activate
-UI.answers[:inputbox] = ->(*_) { nil }
+edit_seen = []
+UI.answers[:inputbox] = lambda do |pr, vals, _l, title|
+  edit_seen << [title, vals]
+  next vals if title.start_with?('Edit W1')                              # centerline / mark / type as entered
+  next vals[0..-3] + ['2x6', '1'] if title.include?('Edit W1')           # header + plies from the answer
+  nil
+end
 s = Builder.work_slots(Builder.params_of(g)).find { |x| x.opening == 'W1' && x.expected['role'] == 'King Stud' }
 x0, z0, x1, z1 = Framing.slot_box(s)
 V.ray = [Geom::Point3d.new((x0 + x1) / 2, -60, (z0 + z1) / 2).transform(g.transformation), Geom::Vector3d.new(0, 1, 0).transform(g.transformation)]
@@ -49,7 +55,11 @@ p = Builder.params_of(g)
 p['entries'] = Builder.work_slots(p).select { |x| x.phase == 'plates' }.to_h { |x| [x.id, x.expected.merge('pieces' => [{ 'size' => x.expected['size'], 'length' => x.expected['length'] }])] }
 Builder.set_params(g, p)
 tool.onMouseMove(0, 0, 0, V); tool.onLButtonDown(0, 0, 0, V)
-chk(UI.messages.last.to_s.include?("A: W1: use") && !Builder.params_of(g)['openings'][0]['rfi_new'], "click the opening -> reads the answer: #{UI.messages.last.to_s.lines[2]&.strip}")
+chk(UI.messages.last.to_s.include?("A: W1: use"), "click the opening -> reads the answer: #{UI.messages.last.to_s.lines[4]&.strip}")
+d2 = edit_seen.find { |t2, _| t2.include?('(Window) - Edit W1') }
+chk(d2 && d2[1][0] == "3' 0\"" && d2[1][2] == "6' 10-1/2\"" && d2[1][3] == Framing::HDR_PICK, "original pop-ups open with what was entered (header left to fill in): #{d2 && d2[1]}")
+o = Builder.params_of(g)['openings'][0]
+chk(o['header'] == '2x6' && o['plies'] == 1 && !o['rfi_new'] && Builder.gate_reason(Builder.params_of(g), s).nil?, 'student updated W1 from the answer - off hold')
 
 # opening the Job Notes tab clears the badge
 yd.fire('notes_seen')

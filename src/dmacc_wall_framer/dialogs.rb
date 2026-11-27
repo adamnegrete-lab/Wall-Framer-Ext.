@@ -479,6 +479,18 @@ module DMACC
             notify_rfis(done)
             send_yard
           end
+          d.add_action_callback('edit_opening') do |_c, a|
+            g = focus_group or next
+            activate_tool
+            mark = JSON.parse(a)['mark']
+            op = Builder.params_of(g)['openings'].find { |o| o['mark'] == mark }
+            if op && op['rfi_new']
+              @tool.read_rfi_answer(g, op)
+            else
+              @tool.opening_popup(g, nil, edit: mark)
+            end
+            send_yard
+          end
           d.add_action_callback('remove_opening') do |_c, a|
             g = focus_group or next
             activate_tool
@@ -594,6 +606,8 @@ module DMACC
           ]
           { 'id' => p['id'], 'type' => p['type'], 'level' => p['level'], 'framed' => framed, 'total' => slots.size,
             'stage' => Builder.stage(p), 'openings' => p['openings'].size,
+            'editable' => p['openings'].reject { |o| slots.any? { |sl| sl.opening == o['mark'] && Inspector.complete?((p['entries'] || {})[sl.id]) } }
+                                       .map { |o| { 'mark' => o['mark'], 'answered' => !!o['rfi_new'] } },
             'removable' => if %w[openings units].include?(Builder.stage(p))
                              p['openings'].reject { |o| slots.any? { |sl| sl.opening == o['mark'] && Inspector.complete?((p['entries'] || {})[sl.id]) } }
                                           .map { |o| o['mark'] }

@@ -1,5 +1,5 @@
 {
-  "version": "0.13.6",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.6.rbz",
-  "notes": "Job Notes: an opening schedule from what students entered off the plans, plus field notes they can save. Field notes show in the grade report."
+  "version": "0.13.7",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.13.7.rbz",
+  "notes": "Edit an opening before it's framed (click the panel button or right-click). An answered RFI opens the original pop-ups so the student updates the header from the answer."
 }

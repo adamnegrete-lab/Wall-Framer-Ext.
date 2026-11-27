@@ -137,6 +137,9 @@ module DMACC
         if slot.opening && (op = params['openings'].find { |o| o['mark'] == slot.opening }) && op['header'] == Framing::RFI && !op['rfi']
           return "#{slot.opening} is on hold - your RFI isn't submitted yet. Click any #{slot.opening} spot to write it."
         end
+        if slot.opening && (op = params['openings'].find { |o| o['mark'] == slot.opening }) && op['header'] == Framing::RFI && op['rfi_new']
+          return "RFI ##{op['rfi_new']} is answered - click #{slot.opening} to read it and update the opening."
+        end
         if slot.opening && (op = params['openings'].find { |o| o['mark'] == slot.opening }) && op['header'] == Framing::RFI
           return "#{slot.opening} is on hold - waiting on the answer to RFI ##{op['rfi']} (header size). Frame another opening or wall in the meantime."
         end

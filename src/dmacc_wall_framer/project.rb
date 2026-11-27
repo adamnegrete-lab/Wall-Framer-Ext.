@@ -267,12 +267,8 @@ module DMACC
             p = Builder.params_of(g)
             p['openings'] = p['openings'].map do |o|
               next o unless o['mark'] == rfi['mark']
-              o = o.merge('header' => ans['header'])
-              o['plies'] = ans['plies'] if ans['plies']
-              o['jacks'] = ans['jacks'] if ans['jacks']
-              o.delete('rfi')
-              o['rfi_new'] = rfi['n'] # read it when you click the opening
-              o
+              # the student reads the answer and updates the opening themselves
+              o.merge('rfi_new' => rfi['n'])
             end
             Builder.set_params(g, p)
             Builder.rebuild(g)
