@@ -58,12 +58,6 @@ chk(done.size == 1 && o['header'] == '2x10' && o['plies'] == 1 && o['jacks'].nil
 o2 = { 'mark' => 'W9', 'type' => 'Window', 'x' => 20.0, 'width' => 150.0, 'height' => 82.5, 'sill' => 34.5, 'header' => Framing::RFI }
 chk(Project.sfpa_answer(s, o2).nil?, 'glulam sizes wait for the instructor')
 
-# header mark that doesn't match the plans is flagged at inspection
-p = Builder.params_of(s); p['hdr_marks'] = { 'W1' => 82.0 }; Builder.set_params(s, p)
-r = Inspector.inspect_wall(Builder.params_of(s), Builder.params_of(s)['entries'], level: 'fix')
-iss = r['issues'].find { |i| i.slot_id == 'HDRMARK:W1' }
-chk(iss && iss.message.include?("6' 10\"") && iss.fix['length_text'].include?("6' 10-1/2\""), "header mark flagged: #{iss && iss.message}")
-
 # back out of openings: right-click items
 Dialogs.activate_tool; tool = Dialogs.instance_variable_get(:@tool); tool.activate
 w2 = id.('W-102')

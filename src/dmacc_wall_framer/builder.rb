@@ -951,14 +951,6 @@ module DMACC
           t = ents.add_text("#{o['mark']} CL", Geom::Point3d.new(cx, 0, z))
           t.layer = tg if t.respond_to?(:layer=)
         end
-        # header height marks on the kings (a line across each king's face)
-        (params['hdr_marks'] || {}).each do |mk, zmark|
-          work_slots(params).select { |s| s.opening == mk && s.expected['role'] == 'King Stud' }.each do |k|
-            z = zmark.to_f
-            line.call([k.x - 0.25, -0.02, z], [k.x + Framing::T + 0.25, -0.02, z])
-            line.call([k.x - 0.25, d + 0.02, z], [k.x + Framing::T + 0.25, d + 0.02, z])
-          end
-        end
         (params['pencil'] || []).each do |m|
           x = m.to_f
           line.call([x, 0, z], [x, d * 0.6, z])                 # pencil tick
