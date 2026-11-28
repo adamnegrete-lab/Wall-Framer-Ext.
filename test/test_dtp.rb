@@ -43,11 +43,9 @@ top.(id.('W-102')); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
 yd.fire('check_interlock'); b = yd.last('load')['building']
 puts "   after S,E: #{b['ok']}/#{b['joints']}"
 chk(b['results'].any? { |r| r['text'].include?("W-102 / W-101 corner: doesn't lap") }, 'wrong order flagged at the S/E corner')
-# fix: take both off (right-click), redo in the right order: butts first
-[id.('W-101'), id.('W-102')].each do |w|
-  top.(w); tool.onMouseMove(0,0,0,V)
-  menu = Struct.new(:items) { def add_item(t, &b) = items << [t, b] }.new([]); tool.getMenu(menu); menu.items.first[1].call
-end
+# fix: take both off (click the piece, say yes), redo in the right order: butts first
+UI.answers[:msg] = IDYES
+[id.('W-101'), id.('W-102')].each { |w| top.(w); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
 chk(Builder.dtp_order.empty? && Builder.dtp_seq.empty?, 'took both off - no ghost order numbers left')
 %w[W-102 W-104 W-105].each { |n| top.(id.(n)); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
 # the closet wall lapped into S: S is now separate pieces, set one at a time
@@ -55,29 +53,12 @@ free = Builder.dtp_free(id.('W-101'))
 chk(free == [[5.5, 135.0], [138.5, 186.5]], "S splits into pieces at the lapped tee: #{free}")
 top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
 chk(Builder.dtp_free(id.('W-101')).size == 1 && !Builder.params_of(id.('W-101'))['entries']['TP:2']['full'], 'one S piece on, one to go')
-# right-click takes off just that piece
-top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V)
-menu = Struct.new(:items) { def add_item(t, &b) = items << [t, b] }.new([]); tool.getMenu(menu)
-chk(menu.items.size == 1 && menu.items.first[0].include?('piece #4'), "right-click names the piece: #{menu.items.map(&:first)}")
-V.ray = [Geom::Point3d.new(-5000, -5000, 500), Geom::Vector3d.new(0, 0, -1)]; tool.onMouseMove(0,0,0,V) # cursor goes onto the menu
-menu.items.first[1].call
-chk(Builder.dtp_free(id.('W-101')).size == 2, 'piece came off even with the cursor off the wall')
 # left-click a piece that's on: asks, then takes it off
-UI.answers[:msg] = IDYES
-top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) # on
-chk(Builder.dtp_free(id.('W-101')).size == 1, 'piece on')
 top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) # click it again
 chk(UI.messages.last.to_s.include?('Take off W-101 double plate piece') && Builder.dtp_free(id.('W-101')).size == 2, "click a placed piece -> asks and takes it off: #{UI.messages.last}")
 top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V)
 chk(Builder.dtp_free(id.('W-101')).size == 1, 'click again puts it back on')
 top.(id.('W-101'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) # off again for the steps below
-# from Frame mode too: right-click a double plate lists that wall's pieces
-top.(id.('W-102')); tool.onMouseMove(0,0,0,V)
-tool.set_mode(:nail); slot2 = Builder.work_slots(Builder.params_of(id.('W-102'))).find { |x| x.id == 'TP:2' }
-tool.instance_variable_set(:@target, [id.('W-102'), slot2, Builder.params_of(id.('W-102'))])
-m2 = Struct.new(:items) { def add_item(t, &b) = items << [t, b] }.new([]); tool.getMenu(m2)
-chk(m2.items[0][0].include?('W-102 double plate piece'), "Frame mode right-click offers the piece: #{m2.items.map(&:first)}")
-tool.set_mode(:dtp)
 [60, 160].each { |x| top.(id.('W-101'), x); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
 Builder.dtp_free(id.('W-103')).each { |a, b| top.(id.('W-103'), (a + b) / 2); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) }
 yd.fire('check_interlock'); b = yd.last('load')['building']
@@ -86,7 +67,7 @@ s = Builder.params_of(id.('W-101'))['entries']['TP:2']['segs']
 e = Builder.params_of(id.('W-102'))['entries']['TP:2']['segs']
 chk(e == [[-5.5, 138.5]] && s == [[5.5, 135.0], [138.5, 186.5]], "geometry: E laps both corners #{e}, S breaks for corners + closet tee #{s}")
 chk(Builder.interlock('Level 1').all? { |r| r['ok'] }, 'interlock all good')
-st = Yard.stats; chk(st['boards_pulled'] >= 6, "double plates pulled real boards (#{st['boards_pulled']}, splices on long runs)")
+n = Builder.dtp_seq.sum { |r| (r['pieces'] || []).size }; chk(n >= 6, "double plates are real boards (#{n} pieces, splices on long runs)")
 r = Inspector.inspect_wall(Builder.params_of(id.('W-101')), Builder.params_of(id.('W-101'))['entries'], student_layout: true)
 chk(r['correct'] == r['total'], "per-wall inspection still passes: #{r['summary']}")
 cl = Dialogs.expected_cut_list; puts "   ideal double plate cut list: #{cl.select { |(sz, l), _| [133+11.0, 181.0, 129.5, 48.0].include?(l) }}"

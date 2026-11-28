@@ -24,13 +24,13 @@ fd.fire('ready')
 chk(fd.last('load')['goto_row'] == 'plate:BP', 'at the bottom plate row')
 CutStudent.fill(g, only: %w[plate:BP plate:TP:1])
 chk(Builder.stage(Builder.params_of(g)) == 'openings', 'plates from the cut list -> openings stage')
-chk(Sketchup.status_text.include?('Openings tab'), "told the openings are next (#{Sketchup.status_text[0, 60]})")
+chk(Sketchup.status_text.include?('Openings'), "told the openings are next (#{Sketchup.status_text[0, 60]})")
 # typing a tape reading in the Frame tool no longer drops pencil marks
 face.(10.0, 0.8); tool.onMouseMove(0,0,0,V); tool.onUserText("4'", V)
 chk(Builder.params_of(g)['pencil'].to_a.empty?, 'no tape/pencil click-through')
 fd.fire('ready')
 st = fd.last('load')
-chk(st['guided'] && st['openings'].empty?, 'form has no opening rows yet')
+chk(st['openings'].empty?, 'form has no opening rows yet')
 # a missing plies pick is caught
 fd.fire('save_openings', { 'pos_mode' => 'center', 'openings' => [
   { 'mark' => 'W1', 'type' => 'Window', 'x_text' => "4'", 'width_text' => '36', 'height_text' => '48', 'sill_text' => '82 1/2', 'header' => '2x8', 'plies' => '--' }] })
@@ -61,13 +61,10 @@ chk(Builder.stage(p) == 'framed', 'framed from the cut list')
 chk(Sketchup.status_text.include?('is framed'), 'told the wall is framed')
 r = Inspector.inspect_wall(p, p['entries'], student_layout: true, table: Project.header_table)
 chk(r['correct'] == r['total'] - 1, "inspection: #{r['summary']} (only the double plate is left)")
-puts "   #{Yard.stats}"
-chk(Yard.stats['boards_pulled'] < 30, 'offcuts reused automatically')
-# a wrong length: change the jack row
+# a jack change on a standing wall: refused while the header rests on it
+j0 = Builder.params_of(g)['entries']['JACK:W1:L'] && Builder.params_of(g)['cutlist']['jack:W1']
 fd.fire('set_row', { 'key' => 'jack:W1', 'v' => '80', 'size' => '2x6' })
-p = Builder.params_of(g)
-r = Inspector.inspect_wall(p, p['entries'], student_layout: true, table: Project.header_table)
-chk(r['issues'].any? { |i| i.message.include?('too short') }, 'wrong jack length caught by inspection')
+chk(fd.last('rowsUpdate')['err'].to_s.include?('Demo tool'), 'jack swap refused while the header sits on it (pull it with Demo first)')
 chk(UI.messages.empty?, "no message boxes: #{UI.messages.first(2)}")
 puts($f ? 'SOME FAILED' : 'ALL PASSED')
 # trade convention: window RO 36 x 48 with 82-1/2 head -> sill at 34-1/2

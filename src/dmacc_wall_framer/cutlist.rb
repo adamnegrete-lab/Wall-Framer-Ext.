@@ -183,12 +183,86 @@ module DMACC
             return 'Pick the backing.' unless BACKING.key?(text)
           end
         end
+        if (why = in_the_way(group, r, text, size))
+          return why
+        end
         p = Builder.params_of(group)
         st = store(p)
         if text.empty? then st.delete(key) else st[key] = val end
         Builder.set_params(group, p)
         clear_row(group, r) if text.empty?
         apply(group)
+        nil
+      end
+
+      # The right answer for a row, from the plans (instructor shortcuts and tests).
+      # [value, size] or nil when there's nothing to place yet.
+      def answer(p, r)
+        slots = Builder.work_slots(p)
+        by = slots.to_h { |s| [s.id, s] }
+        first = r['slots'].map { |id| by[id] }.compact.first
+        case r['input']
+        when 'corner'
+          need = (p['corner_need'] || {})[r['key'].split(':').last]
+          [need && need['type'] == 'L' ? 'L' : 'single']
+        when 'oc'
+          sp = p['spacing'].to_f
+          [sp == sp.round ? sp.round.to_s : sp.to_s]
+        when 'backing' then ['ladder']
+        when 'lens'
+          return nil unless first
+          len = first.expected['length'].to_f
+          pcs = []
+          while len > Framing::STOCK_MAX + 1e-6
+            pcs << Framing::STOCK_MAX
+            len -= Framing::STOCK_MAX
+          end
+          pcs << len
+          [pcs.map { |l| Framing.fmt_len(l) }.join(', '), first.expected['size']]
+        else
+          first ||= slots.find { |s| s.phase == 'commons' && s.kind == :vertical } if r['key'] == 'common'
+          return nil unless first
+          [Framing.fmt_len(first.expected['length']), first.expected['size']]
+        end
+      end
+
+      # Fill every empty (or wrong) row with the right answer, as many passes as it takes.
+      def fill(group)
+        8.times do
+          p = Builder.params_of(group)
+          todo = rows(p).reject { |r| %w[placed none].include?(r['state']) && !r['value'].empty? }
+                        .select { |r| r['value'].empty? || r['state'] == 'error' }
+          moved = false
+          todo.each do |r|
+            v, size = answer(Builder.params_of(group), r)
+            next unless v
+            set(group, r['key'], v, size)
+            moved = true
+          end
+          break unless moved
+        end
+      end
+
+      # A standing wall gets fixed the real way: whatever sits on a piece comes out
+      # first (Demo), so a row can't swap a piece out from under the ones on it.
+      def in_the_way(group, r, text, size)
+        return nil if Builder.on_table?(group) || !%w[len lens].include?(r['input'])
+        p = Builder.params_of(group)
+        e = p['entries'] || {}
+        by = Builder.work_slots(p).to_h { |s| [s.id, s] }
+        cur = store(p)[r['key']] || {}
+        return nil if cur['v'].to_s == text && (size.nil? || cur['size'].nil? || cur['size'] == size)
+        r['slots'].each do |id|
+          slot = by[id]
+          next unless slot && Inspector.complete?(e[id])
+          if id == 'TP:1' && Builder.dtp_piece_at(group, p['length'].to_f / 2.0)
+            return 'The double top plate is on this wall. Take it off first (Double Top Plates - click the piece), then change this row.'
+          end
+          on = Builder.resting_on(p, slot).reject { |s| r['slots'].include?(s.id) }
+          next if on.empty?
+          what = on.size == 1 ? "The #{on.first.label}" : "#{on.size} pieces (#{on.first(2).map(&:label).join(', ')}#{on.size > 2 ? '...' : ''})"
+          return "#{what} #{on.size == 1 ? 'is' : 'are'} on the #{slot.label}. Pull #{on.size == 1 ? 'it' : 'them'} with the Demo tool first, then change this row."
+        end
         nil
       end
 
@@ -294,16 +368,12 @@ module DMACC
         end
       end
 
-      # Every piece out of a slot, onto the offcut pile.
+      # Every piece out of a slot.
       def pull(group, id)
         p = Builder.params_of(group)
         e = (p['entries'] || {})[id] or return
         p['entries'].delete(id)
         Builder.set_params(group, p)
-        pcs = e['auto'] ? (e['pieces'] || []) : (e['pieces'] || [e])
-        Yard.change do |y|
-          pcs.each { |pc| y['offcuts'] << { 'id' => YardLogic.new_id(y, 'O'), 'size' => pc['size'], 'length' => pc['length'].to_f } if pc['size'] }
-        end
       end
 
       # true if anything changed

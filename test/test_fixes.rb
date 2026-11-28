@@ -66,48 +66,13 @@ chk(e['geom'].count { |g| g['role'] == 'Backing Stud' } == 2, '3-stud channel: t
 r = Inspector.inspect_wall(Builder.params_of(s), Builder.params_of(s)['entries'], student_layout: true)
 chk(r['issues'].none? { |i| i.message.include?('backing') }, "backing counts at inspection: #{r['summary']}")
 
-# ---- RFIs ----
-UI.answers[:msg] = IDYES
-n = Project.submit_rfi('W-101', 'W7', 'Header for W7?')
-p = Builder.params_of(s)
-p['openings'] = [{ 'mark' => 'W7', 'type' => 'Window', 'x' => 60.0, 'width' => 36.0, 'height' => 82.5, 'sill' => 34.5, 'header' => Framing::RFI, 'rfi' => n }]
-Builder.set_params(s, p)
-hs = Builder.work_slots(Builder.params_of(s)).find { |x| x.opening == 'W7' }
-chk(Builder.gate_reason(Builder.params_of(s), hs).to_s.include?('on hold'), 'opening on hold while the RFI is out')
-chk(Project.release_rfis.empty?, 'no answer before the delay')
-Project.set_password('shop'); Project.relock
-st = Dialogs.rfi_state.first
-chk(st['status'] == 'submitted - awaiting response' && !st.key?('left'), "students see no countdown: #{st['status']}")
-Project.update { |d| d['span_table'] = [{ 'size' => '2x8', 'plies' => 2, 'span' => 48.0, 'jacks' => 1 }, { 'size' => '2x10', 'plies' => 2, 'span' => 72.0, 'jacks' => 2 }] }
-Project.unlock('shop')
-chk(Dialogs.rfi_state.first['status'].include?('min'), "instructor sees the time left: #{Dialogs.rfi_state.first['status']}")
-Project.update { |d| d['rfis'][0]['at'] -= 33 * 60 }
-done = Project.release_rfis
-o7 = Builder.params_of(s)['openings'].first
-chk(done.size == 1 && done.first['answer'].to_s.include?('use (') && o7['rfi_new'] == 1 && o7['header'] == Framing::RFI,
-    "answered after 32 min, waiting for the student to update W7: #{done.first && done.first['answer']}")
-p = Builder.params_of(s); p['openings'][0] = p['openings'][0].merge('header' => '2x8', 'plies' => 2).reject { |k, _| %w[rfi rfi_new].include?(k) }; Builder.set_params(s, p)
-# non-bearing wall: flat
-cl = id.('W-105')
-n2 = Project.submit_rfi('W-105', 'D5', 'Header for D5?')
-p = Builder.params_of(cl)
-p['openings'] = [{ 'mark' => 'D5', 'type' => 'Door', 'x' => 40.0, 'width' => 30.0, 'height' => 82.5, 'sill' => 0, 'header' => Framing::RFI, 'rfi' => n2 }]
-Builder.set_params(cl, p)
-done = Project.release_rfis(n2)
-chk(done.size == 1 && done.first['answer'].include?('(2) 2x4 flat'), 'instructor answers early; non-bearing gets (2) 2x4 flat')
-p = Builder.params_of(cl); p['openings'][0] = p['openings'][0].merge('header' => Framing::FLAT).reject { |k, _| %w[rfi rfi_new].include?(k) }; Builder.set_params(cl, p)
-html = DMACC::WallFramer.rfi_html
-chk(html.include?('#1') && html.include?('#2') && html.include?('flat'), 'RFIs logged in the grade report')
 
-# ---- Frame mode won't pull a double plate ----
-fill.(s); fill.(id.('W-102')); fill.(id.('W-103')); fill.(id.('W-104')); fill.(cl)
+# ---- double plate pieces ----
+fill.(s); fill.(id.('W-102')); fill.(id.('W-103')); fill.(id.('W-104')); fill.(id.('W-105'))
 Builder.install_tee(s, 'W-105', 'channel')
 Builder.install_tee(id.('W-103'), 'W-105', 'channel') if Builder.work_slots(Builder.params_of(id.('W-103'))).any? { |x| x.id == 'TEE:W-105' }
 puts "   blockers: #{Builder.dtp_blockers('Level 1')}"
 chk(Builder.place_dtp(id.('W-102'), 60).nil?, 'double plate piece on')
-slot = Builder.work_slots(Builder.params_of(id.('W-102'))).find { |x| x.id == 'TP:2' }
-tool.pull(id.('W-102'), slot)
-chk(Builder.params_of(id.('W-102'))['entries']['TP:2'] && Sketchup.status_text.include?('Right-click the double plate'), 'Frame mode never pulls a double plate whole')
 chk(Builder.dtp_order == ['W-102'], 'order has no ghosts')
 
 # ---- legacy double plate data migrates to pieces ----

@@ -64,18 +64,16 @@
   <button data-tab="wall" role="tab">This Wall</button>
   <button data-tab="notes" role="tab">Job Notes<span id="badge"></span></button>
   <button data-tab="building" role="tab">Building</button>
-  <button data-tab="material" role="tab">Material</button>
   <button data-tab="inst" role="tab" id="tab-inst">Instructor</button>
 </nav>
 
 <div class="pane" id="pane-wall">
   <div class="what">The wall you're working on: its steps, what's next, inspections. Hover a wall (or pick one under Building) to switch.</div>
   <section id="wall"></section>
-  <div id="mode-note" class="note" style="padding:4px 14px;background:#eee"></div>
 </div>
 
 <div class="pane" id="pane-notes">
-  <div class="what">Everything on this job: what you took off the plans, your own field notes, RFI answers, inspection results, and notes from your instructor.</div>
+  <div class="what">Everything on this job: what you took off the plans, your own field notes, inspection results, and notes from your instructor.</div>
   <section><h2>From the plans (what you entered)</h2><div id="plans"></div></section>
   <section>
     <h2>Add a field note</h2>
@@ -91,43 +89,13 @@
   <section id="building"></section>
 </div>
 
-<div class="pane" id="pane-material">
-  <div class="what">Lumber: what you've pulled, nailed, and wasted.</div>
-  <section class="saw adv">
-    <h2>Saw</h2>
-    <div id="hand" class="note"></div>
-    <div class="stop">
-      <label for="cut"><strong>Saw stop</strong></label>
-      <input id="cut" placeholder="full length">
-      <button id="setcut">Set</button>
-      <button id="clearcut">Full length</button>
-    </div>
-    <label><input type="checkbox" id="offcuts"> Offcuts first (best fit from the offcut pile)</label>
-    <div class="note" id="kerf"></div>
-  </section>
-  <section class="adv">
-    <h2>Stock - click to load it</h2>
-    <div class="stock" id="piles"></div>
-  </section>
-  <section class="adv">
-    <details id="offdet"><summary id="offsum">Offcut pile</summary><div id="offcuts-list"></div></details>
-    <details id="cartdet"><summary id="cartsum">Cart</summary><div id="cart"></div></details>
-  </section>
-  <section>
-    <h2>Material use</h2>
-    <div class="stats" id="stats"></div>
-  </section>
-</div>
-
 <div class="pane" id="pane-inst">
-  <div class="what">Instructor only (unlocked): answer RFIs early, post a job note, restock the yard.</div>
-  <section id="rfis"></section>
+  <div class="what">Instructor only (unlocked): post a job note.</div>
   <section>
     <h2>Post a job note</h2>
     <textarea id="note-text" rows="3" style="width:100%;font:inherit" placeholder="Shows up in every student's Job Notes for this file"></textarea>
     <div class="btns"><button id="post-note">Post note</button></div>
   </section>
-  <section><div id="instructor"><button id="restock">Restock yard</button></div></section>
 </div>
 <div id="status" style="padding:4px 14px"></div>
 
@@ -162,31 +130,15 @@ function renderWall(w) {
     box.appendChild(ol);
   }
   var FRAMING = ['plates', 'openings', 'units', 'commons', 'cripples'];
-  if (w.on_table && w.stage === 'framed') box.appendChild(el('div', { 'class': 'btns' }, [
-    el('button', { 'class': 'primary', text: 'Stand it up', title: 'Raise the wall and set it on its chalk line', onclick: function () { call('stand_up'); } })]));
-  else if (w.on_table) box.appendChild(el('div', { 'class': 'note', text: 'On the framing table - lying flat, bottom plate toward you.' }));
+  if (w.on_table) box.appendChild(el('div', { 'class': 'note', text: 'On the framing table - lying flat, bottom plate toward you.' }));
   else if (S.framing_table && FRAMING.indexOf(w.stage) >= 0) box.appendChild(el('div', { 'class': 'btns' }, [
     el('button', { text: 'Bring to the framing table', onclick: function () { call('to_table'); } })]));
-  if (w.stage === 'openings') box.appendChild(el('div', { 'class': 'btns' }, [
-    el('button', { 'class': 'primary', text: 'Enter openings', onclick: function () { call('openings_done'); } })]));
-  if (w.editable && w.editable.length) box.appendChild(el('div', { 'class': 'btns' }, w.editable.map(function (o) {
-    return el('button', { 'class': o.answered ? 'primary' : '', text: o.answered ? o.mark + ': RFI answered - update' : 'Edit ' + o.mark,
-      title: 'Open the Openings form for this wall', onclick: function () { call('edit_opening', { mark: o.mark }); } });
-  })));
-  if (w.removable && w.removable.length) box.appendChild(el('div', { 'class': 'btns' }, w.removable.map(function (m) {
-    return el('button', { text: 'Remove ' + m, title: 'Take ' + m + ' off this wall (before it is framed)', onclick: function () { call('remove_opening', { mark: m }); } });
-  })));
-  if (!S.guided) box.appendChild(el('div', { 'class': 'btns modes' }, ['nail', 'layout', 'opening'].map(function (m) {
-    var names = { nail: 'Nail', layout: 'Mark stud layout', opening: 'Mark opening CL' };
-    return el('button', { 'class': S.mode === m ? 'primary' : '', text: names[m], onclick: function () { call('mode', { mode: m }); } });
-  })));
   box.appendChild(el('div', { 'class': 'btns' }, [
-    el('button', { 'class': 'primary', text: 'Request inspection (whole level)', onclick: function () { call('inspect'); } }),
-    el('button', { text: 'Shop drawing', onclick: function () { call('shop'); } }),
-    el('button', { text: 'Openings', onclick: function () { call('openings'); } })
+    el('button', { 'class': 'primary', text: 'Frame Wall form', title: 'Plates, openings, corners and studs for this wall', onclick: function () { call('openings'); } }),
+    el('button', { text: 'Request inspection (whole level)', onclick: function () { call('inspect'); } }),
+    el('button', { text: 'Shop drawing', onclick: function () { call('shop'); } })
   ]));
   var ins = w.inspection;
-  if (S.guided) box.appendChild(el('div', { 'class': 'btns' }, [el('button', { 'class': S.mode === 'guided' ? 'primary' : '', text: 'Frame walls (pop-ups)', onclick: function () { call('mode', { mode: 'nail' }); } })]));
   if (ins) {
     var s = el('div', { 'class': 'summary ' + (ins.passed ? 'ok' : 'err') }, [el('strong', { text: ins.summary })]);
     if (ins.issues.length) {
@@ -225,29 +177,6 @@ function renderBuilding(b) {
   }
 }
 
-function renderRfis(list) {
-  var box = $('rfis'); box.innerHTML = '';
-  if (!list || !list.length) { box.style.display = 'none'; return; }
-  box.style.display = '';
-  box.appendChild(el('h2', { text: 'RFIs - time left and early answers (students only see "awaiting response")' }));
-  list.slice().reverse().forEach(function (r) {
-    var d = el('div', { 'class': 'summary ' + (r.answer ? 'ok' : '') }, [
-      el('strong', { text: 'RFI #' + r.n + ' - ' + r.wall + ' ' + r.mark + ' (' + r.status + ')' }),
-      el('div', { 'class': 'note', text: 'Q: ' + r.question })]);
-    if (r.answer) d.appendChild(el('div', { text: 'A: ' + r.answer }));
-    if (r.can_answer) {
-      var sz = el('select', { 'aria-label': 'Header' });
-      ['2x6', '2x8', '2x10', '2x12', '2x4F'].forEach(function (v) { sz.appendChild(el('option', { value: v, text: v === '2x4F' ? '(2) 2x4 flat' : v })); });
-      var pl = el('select', { 'aria-label': 'Plies' }); ['2', '3', '1'].forEach(function (v) { pl.appendChild(el('option', { value: v, text: v + ' ply' })); });
-      var tx = el('input', { placeholder: 'Your answer (blank = answer from the span table now)', style: 'width:100%' });
-      d.appendChild(el('div', { 'class': 'btns' }, [sz, pl,
-        el('button', { text: 'Answer now', onclick: function () { call('answer_rfi', { n: r.n, header: sz.value, plies: pl.value, text: tx.value }); } })]));
-      d.appendChild(tx);
-    }
-    box.appendChild(d);
-  });
-}
-
 var TAB = 'wall';
 function showTab(t, clicked) {
   TAB = t;
@@ -264,7 +193,7 @@ function renderNotes(n) {
   var pl = $('plans'); pl.innerHTML = '';
   if (n && n.plans && n.plans.length) n.plans.forEach(function (p) { pl.appendChild(el('div', { 'class': 'row', text: p.text })); });
   else pl.appendChild(el('div', { 'class': 'note', text: 'Openings you lay out show up here with the numbers you entered from the plans.' }));
-  if (!n || !n.items.length) { box.appendChild(el('div', { 'class': 'note', text: 'Nothing yet. Your notes, RFI answers and inspection results show up here.' })); return; }
+  if (!n || !n.items.length) { box.appendChild(el('div', { 'class': 'note', text: 'Nothing yet. Your notes and inspection results show up here.' })); return; }
   n.items.forEach(function (it) {
     var d = el('div', { 'class': 'item' + (it.unseen ? ' new' : '') }, [
       el('div', { 'class': 'k', text: it.kind + (it.when ? ' - ' + it.when : '') }),
@@ -283,8 +212,7 @@ function renderWalls(ws) {
   ws.forEach(function (w) {
     box.appendChild(el('div', { 'class': 'wl', title: 'Work on ' + w.id, onclick: function () { call('focus', { id: w.id }); showTab('wall'); } }, [
       el('span', { 'class': 'id', text: w.id }),
-      el('span', { 'class': 'st', text: w.level + ' - ' + (STAGES[w.stage] || w.stage) }),
-      w.held.length ? el('span', { 'class': 'hold', text: 'on hold: ' + w.held.join(', ') }) : null]));
+      el('span', { 'class': 'st', text: w.level + ' - ' + (STAGES[w.stage] || w.stage) })]));
   });
 }
 
@@ -295,53 +223,10 @@ function load(state) {
   showTab(TAB);
   renderNotes(state.notes);
   renderWalls(state.walls);
-  renderRfis(state.rfis);
   renderWall(state.wall);
   renderBuilding(state.building);
-  document.querySelectorAll('.adv').forEach(function (x) { x.style.display = state.guided ? 'none' : ''; });
-  $('mode-note').style.display = state.guided ? 'none' : '';
-  $('mode-note').textContent = { nail: 'Tool: NAIL', layout: 'Tool: MARK STUD LAYOUT - click stud centers on the bottom plate', opening: 'Tool: MARK OPENING - click the opening centerline on the bottom plate', dtp: 'Tool: DOUBLE TOP PLATES - click walls from the top view in order' }[state.mode] + '  (Tab cycles)';
-  $('hand').textContent = state.hand
-    ? 'In hand: ' + state.hand.size + ' x ' + state.hand.length_text + ' - next click nails this piece. Esc sets it down.'
-    : 'Each click on a layout mark pulls a board from the loaded stock, cuts it to the stop, and nails it in.';
-  if (document.activeElement !== $('cut')) $('cut').value = state.cut_text;
-  $('offcuts').checked = state.use_offcuts;
-  $('kerf').textContent = 'Kerf ' + state.kerf_text + '. You can also type the stop in SketchUp\'s Measurements box (full = no cut, o = offcuts first).';
-  var piles = $('piles'); piles.innerHTML = '';
-  var lastSize = null;
-  state.piles.forEach(function (p) {
-    if (p.size !== lastSize) { lastSize = p.size; piles.appendChild(el('div', { 'class': 'sizehead', text: p.size })); }
-    var name = p.label.replace(p.size + ' ', '');
-    var b = el('button', { 'class': p.id === state.stock ? 'on' : '', onclick: function () { call('set_stock', { id: p.id }); } },
-      [document.createTextNode(name), el('span', { 'class': 'q', text: p.qty === null ? '' : p.qty })]);
-    piles.appendChild(b);
-  });
-  var ol = $('offcuts-list'); ol.innerHTML = '';
-  $('offsum').textContent = 'Offcut pile (' + state.offcuts.length + ')';
-  state.offcuts.forEach(function (p) {
-    ol.appendChild(el('div', { 'class': 'row' }, [el('span', { 'class': 'name', text: p.size + ' x ' + p.length_text }),
-      el('button', { text: 'Pick up', onclick: function () { call('take', { id: p.id }); } }),
-      el('button', { text: 'Scrap', onclick: function () { call('discard', { id: p.id }); } })]));
-  });
-  var c = $('cart'); c.innerHTML = '';
-  $('cartsum').textContent = 'Cart - loose cut pieces (' + state.cart.length + ')';
-  state.cart.forEach(function (p) {
-    c.appendChild(el('div', { 'class': 'row' }, [el('span', { 'class': 'name', text: p.size + ' x ' + p.length_text + (p.from ? ' (' + p.from + ')' : '') }),
-      el('button', { text: 'Pick up', onclick: function () { call('take', { id: p.id }); } }),
-      el('button', { text: 'Scrap', onclick: function () { call('discard', { id: p.id }); } })]));
-  });
-  var st = state.stats, sx = $('stats'); sx.innerHTML = '';
-  [['Boards', st.boards_pulled], ['Pulled', st.pulled_lf + ' LF'], ['Nailed', st.installed_lf + ' LF'],
-   ['Offcuts', st.offcut_lf + ' LF'], ['Scrap', st.scrap_lf + ' LF'], ['Not nailed', st.waste_pct + '%']].forEach(function (a) {
-    sx.appendChild(el('div', {}, [el('strong', { text: a[0] + ': ' }), document.createTextNode(String(a[1]))]));
-  });
 }
 function setStatus(t) { $('status').textContent = t || ''; }
-$('setcut').onclick = function () { call('set_cut', { text: $('cut').value }); };
-$('cut').addEventListener('keydown', function (e) { if (e.key === 'Enter') { call('set_cut', { text: $('cut').value }); $('cut').blur(); } });
-$('clearcut').onclick = function () { $('cut').value = ''; call('set_cut', { text: '' }); };
-$('offcuts').onchange = function () { call('toggle_offcuts', { on: $('offcuts').checked }); };
-$('restock').onclick = function () { call('restock'); };
 $('add-my-note').onclick = function () { var t = $('my-note').value.trim(); if (t) { call('add_my_note', { text: t }); $('my-note').value = ''; } };
 $('post-note').onclick = function () { var t = $('note-text').value.trim(); if (t) { call('post_note', { text: t }); $('note-text').value = ''; } };
 window.onload = function () { sketchup.ready(''); };

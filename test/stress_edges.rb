@@ -50,6 +50,17 @@ row = lambda do |g, key, v, size = nil|
   d.fire('set_row', { 'key' => key, 'v' => v, 'size' => size }); d.last('rowsUpdate')
 end
 
+# Openings go in through the Frame Wall form (the old pop-ups are gone). Returns the form's errors.
+def opening_form(g, rows)
+  Dialogs.open_frame(g); d = CutStudent.frame_dialog; d.fire('ready')
+  have = d.last('load')['openings']
+  add = rows.map { |m, t, x, w, h, head, hdr, pl| { 'mark' => m, 'type' => t, 'x_text' => x, 'width_text' => w, 'height_text' => h, 'sill_text' => head.to_s, 'header' => hdr, 'plies' => pl } }
+  sc = d.instance_variable_get(:@scripts); n = sc.size
+  d.fire('save_openings', { 'pos_mode' => 'center', 'openings' => have + add })
+  e = sc[n..].reverse.find { |x| x.start_with?('openingErrors(') }
+  e ? JSON.parse(e[14..-2]) : []
+end
+
 kase('clicking a piece asks nothing') do
   UI.answers[:inputbox] = ->(*_) { finding('a pop-up came up'); nil }
   cslot.(s, slot.(s, 'BP'))
@@ -91,107 +102,93 @@ end
 pl = ->(g) { CutStudent.fill(g, only: %w[plate:BP plate:TP:1]) }
 kase('plates everywhere') { ws.().each { |g| pl.(g) }; ok("plates in: #{ws.().map { |g| Builder.stage(Builder.params_of(g)) }.uniq}") }
 
-kase('opening pop-up mistakes') do
-  bad = { 'too close to the wall start' => [["20\"", 'W1', 'Window'], %w[36 48 82.5 2x8 3], 'too close to the wall start'],
-          'sill below the plate' => [["8'", 'W1', 'Window'], ['36', '80', '82 1/2', '2x8', '3'], 'down at the bottom plate'],
-          "header won't fit" => [["8'", 'W1', 'Window'], ['36', '48', "8' 2\"", '2x8', '3'], "won't fit under the top plate"],
-          'no plies' => [["8'", 'W1', 'Window'], ['36', '48', '82 1/2', '2x8', '--'], 'plies'],
-          'no header picked' => [["8'", 'W1', 'Window'], ['36', '48', '82 1/2', Framing::HDR_PICK, '3'], "don't assume"],
-          'centerline off the wall' => [["30'", 'W1', 'Window'], nil, 'centerline'] }
-  bad.each do |k, (a1, a2, want)|
-    answers = [a1, a2, nil, nil].compact
-    answers = [a1, nil] if a2.nil?
-    seq = a2 ? [a1, a2, nil, nil] : [a1, nil]
-    UI.answers[:inputbox] = ->(*_) { seq.shift }
-    m = UI.messages.size
-    T.opening_popup(s, 120.0)
-    msgs = UI.messages[m..].join(' | ')
-    msgs.include?(want) ? ok("opening check: #{k}") : finding("opening pop-up didn't catch: #{k} (#{msgs[0, 120]})")
+kase('opening form mistakes') do
+  bad = { 'too close to the wall start' => [['W1', 'Window', '20"', '36', '48', '82 1/2', '2x8', '3'], 'too close to the wall start'],
+          'header won\'t fit' => [['W1', 'Window', "8'", '36', '48', "8' 2\"", '2x8', '3'], 'fit'],
+          'no plies' => [['W1', 'Window', "8'", '36', '48', '82 1/2', '2x8', '--'], 'plies'],
+          'no header picked' => [['W1', 'Window', "8'", '36', '48', '82 1/2', Framing::HDR_PICK, '3'], 'pick the header'],
+          'blank width' => [['W1', 'Window', "8'", '', '48', '82 1/2', '2x8', '3'], 'width'] }
+  bad.each do |k, (r, want)|
+    errs = opening_form(s, [r]).join(' | ')
+    errs.include?(want) ? ok("opening check: #{k}") : finding("opening form didn't catch: #{k} (#{errs[0, 120]})")
   end
   Builder.params_of(s)['openings'].empty? ? ok('nothing laid out after the mistakes') : finding("opening saved despite errors: #{Builder.params_of(s)['openings'].map { |o| o['mark'] }}")
 end
 
 kase('duplicate mark on another wall') do
-  UI.answers[:inputbox] = ->(*_) { nil }
-  answers = [["5'", 'W1', 'Window'], %w[36 48 82.5 2x8 3]]
-  UI.answers[:inputbox] = ->(*_) { answers.shift }
-  T.opening_popup(s, 60.0)
-  answers = [["4'", 'W1', 'Window'], nil]
-  m = UI.messages.size
-  T.opening_popup(id.('W-103'), 48.0)
-  UI.messages[m..].any? { |x| x.include?('already used') } ? ok('duplicate mark caught') : finding('duplicate mark across walls not caught')
+  e1 = opening_form(s, [['W1', 'Window', "5'", '36', '48', '82 1/2', '2x8', '3']])
+  e1.empty? ? ok('W1 on W-101') : finding("W1 refused: #{e1}")
+  e2 = opening_form(id.('W-103'), [['W1', 'Window', "4'", '36', '48', '82 1/2', '2x8', '3']])
+  e2.any? { |x| x.include?('already used') } ? ok('duplicate mark caught') : finding("duplicate mark across walls not caught (#{e2})")
 end
 
 kase('door right where a partition tees in') do
-  # W-105 tees into W-101 at x 100..103.5 (from the start). A door centered there:
-  answers = [["11' 10\"", 'D9', 'Door'], ['30', '82 1/2', '2x10', '3'], nil, nil]
-  UI.answers[:inputbox] = ->(*_) { answers.shift }
-  m = UI.messages.size
-  T.opening_popup(id.('W-103'), 142.0) # W-105 tees into the north wall at 140 - 143-1/2
   q = Builder.params_of(id.('W-103'))
   tee = (q['tee_need'] || []).first
-  if q['openings'].any? { |o| o['mark'] == 'D9' }
-    finding("a door can be laid out right where a partition tees in (tee at #{tee && tee['a0']}..#{tee && tee['a1']} on W-103) - no warning")
+  if tee
+    mid = (tee['a0'].to_f + tee['a1'].to_f) / 2.0
+    errs = opening_form(id.('W-103'), [['D9', 'Door', Framing.fmt_len(Framing.layout_dist(q, mid)), '30', '82 1/2', nil, '2x10', '3']])
+    if Builder.params_of(id.('W-103'))['openings'].any? { |o| o['mark'] == 'D9' }
+      finding("a door can be laid out right where a partition tees in (tee at #{tee['a0']}..#{tee['a1']} on W-103) - no warning")
+    else
+      ok("door over the tee refused: #{errs.first.to_s[0, 90]}")
+    end
   else
-    ok("door over the tee refused: #{UI.messages[m..].last.to_s[0, 90]}")
+    ok('no tee on W-103 to test')
   end
 end
 
 kase('window right next to an L-corner post') do
-  w4 = id.('W-103') # a through wall: the butt walls land on its ends -> L posts
+  w4 = id.('W-103')
   q = Builder.params_of(w4)
-  need = q['corner_need'] || {}
-  end_l = need.find { |_k, v| v['type'] == 'L' }
+  end_l = (q['corner_need'] || {}).find { |_k, v| v['type'] == 'L' }
   if end_l
     x = end_l[0] == 'start' ? 26.5 : q['length'].to_f - 26.5
-    answers = [[Framing.fmt_len(Framing.layout_dist(q, x)), 'W7', 'Window'], %w[36 48 82.5 2x8 3], nil, nil]
-    UI.answers[:inputbox] = ->(*_) { answers.shift }
-    m = UI.messages.size
-    T.opening_popup(w4, x)
+    errs = opening_form(w4, [['W7', 'Window', Framing.fmt_len(Framing.layout_dist(q, x)), '36', '48', '82 1/2', '2x8', '3']])
     o = Builder.params_of(w4)['openings'].find { |op| op['mark'] == 'W7' }
     if o
       king = end_l[0] == 'start' ? o['x'] - 3.0 : o['x'] + o['width'] + 1.5
       post = end_l[0] == 'start' ? [1.5, 7.0] : [q['length'].to_f - 7.0, q['length'].to_f - 1.5]
-      overlap = king < post[1] && king + 1.5 > post[0]
-      overlap ? finding("W7's king stud lands on the L-corner post (king #{king}, post #{post})") : ok('window near the L corner clears the post')
+      king < post[1] && king + 1.5 > post[0] ? finding("W7's king stud lands on the L-corner post (king #{king}, post #{post})") : ok('window near the L corner clears the post')
       Builder.params_of(w4).then { |qq| qq['openings'] = qq['openings'].reject { |op| op['mark'] == 'W7' }; Builder.set_params(w4, qq) }
     else
-      ok("window over the L post refused: #{UI.messages[m..].join[0, 100]}")
+      ok("window over the L post refused: #{errs.first.to_s[0, 100]}")
     end
   else
-    ok('no L corner on W-102 to test')
+    ok('no L corner on W-103 to test')
   end
 end
 
 kase('opening wider than 6 ft (2 jacks)') do
   w3 = id.('W-101')
-  answers = [["14' 7\"", 'W4', 'Window'], ['96', '48', '82 1/2', '2x12', '3'], nil]
-  UI.answers[:inputbox] = ->(*_) { answers.shift }
-  T.opening_popup(w3, 175.0)
+  q = Builder.params_of(w3)
+  errs = opening_form(w3, [['W4', 'Window', Framing.fmt_len(Framing.layout_dist(q, 175.0)), '96', '48', '82 1/2', '2x12', '3']])
   q = Builder.params_of(w3)
   jacks = Builder.work_slots(q).count { |x| x.opening == 'W4' && x.expected['role'] == 'Jack Stud' }
-  jacks == 4 ? ok('8 ft window gets 2 jacks each side') : finding("8 ft window jacks: #{jacks} (#{UI.messages.last(2).join(' | ')[0, 160]})")
+  jacks == 4 ? ok('8 ft window gets 2 jacks each side') : finding("8 ft window jacks: #{jacks} (#{errs.first(2)})")
 end
 
-kase('RFI form cancelled, then reopened from the opening') do
-  w2 = id.('W-102')
-  answers = [["5'", 'W8', 'Window'], ['36', '48', '82 1/2', Framing::HDR_RFI, '--'], nil]
-  UI.answers[:inputbox] = ->(*_) { answers.shift }
-  T.opening_popup(w2, 60.0)
-  d = UI::HtmlDialog.all.last
-  d.fire('ready'); d.fire('cancel')
-  q = Builder.params_of(w2)
-  op = q['openings'].find { |o| o['mark'] == 'W8' }
-  if op && op['header'] == Framing::RFI && !op['rfi']
-    ok('cancelled RFI: opening on hold, not sent')
-    n = UI::HtmlDialog.all.size
-    Builder.set_flag(w2, 'openings_done', true)
-    k = Builder.work_slots(Builder.params_of(w2)).find { |x| x.opening == 'W8' }
-    cslot.(w2, k)
-    UI::HtmlDialog.all.size > n ? ok('clicking the held opening reopens the RFI form') : finding("clicking a held opening with no RFI sent didn't reopen the form (#{Sketchup.status_text})")
-  else
-    finding("cancelled RFI state: #{op.inspect}")
+kase('clockwise loop in Place Walls is undone') do
+  n = Builder.all_walls.size
+  V.ray = nil
+  t = DrawWallTool.new('Level 1', 'EXT 2x6'); t.activate
+  pts = [[600, 0], [600, 120], [720, 120], [720, 0]] # up, right, down = clockwise
+  t.onLButtonDown(0, 600, 0, V)
+  pts.each_with_index do |a, i|
+    b = pts[(i + 1) % 4]; len = Math.hypot(b[0] - a[0], b[1] - a[1])
+    t.onMouseMove(0, a[0] + (b[0] - a[0]) / len * 30, a[1] + (b[1] - a[1]) / len * 30, V)
+    t.onUserText(Framing.fmt_len(len), V)
   end
+  Builder.all_walls.size == n ? ok("clockwise loop undone: #{Sketchup.status_text.to_s[0, 80]}") : finding("clockwise loop kept #{Builder.all_walls.size - n} walls")
+end
+
+kase('wall over 40 ft refused') do
+  n = Builder.all_walls.size
+  V.ray = nil
+  t = DrawWallTool.new('Level 1', 'EXT 2x6'); t.activate
+  t.onLButtonDown(0, 0, 600, V); t.onMouseMove(0, 30, 600, V); t.onUserText("42'", V)
+  Builder.all_walls.size == n ? ok('42 ft wall refused') : finding('42 ft wall was drawn')
+  t.onCancel(0, V) if t.respond_to?(:onCancel)
 end
 
 kase('change a corner after framing') do
@@ -230,7 +227,6 @@ kase('random clicks in empty space and on the yard') do
   V.ray = [Geom::Point3d.new(5000, 5000, 300), Geom::Vector3d.new(0, 0, -1)]
   T.onMouseMove(0, 0, 0, V); T.onLButtonDown(0, 0, 0, V)
   T.onUserText('48', V)
-  T.getMenu(Struct.new(:items) { def add_item(t, &b) = items << [t, b] }.new([]), 0, 0, 0, V)
   ok('clicks on nothing: no crash')
 end
 
@@ -250,11 +246,6 @@ kase('wall type change mid-framing') do
   Builder.set_params(w4, q); Builder.rebuild(w4)
   Inspector.inspect_wall(Builder.params_of(w4), Builder.params_of(w4)['entries'], level: 'coach')
   ok('wall type changed after plates: inspection runs')
-end
-
-kase('instructor answers an RFI by hand with a bad size') do
-  r = Project.answer_rfi_manual(99, '2x99', 2, 'x')
-  r.empty? ? ok('bad manual answer ignored') : finding('manual RFI answer accepted a bad size')
 end
 
 kase('grade a model with no walls in the key') do

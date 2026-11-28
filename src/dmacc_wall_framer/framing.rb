@@ -55,7 +55,7 @@ module DMACC
       end
 
       FLAT = '2x4F' # double 2x4 laid flat - interior non-bearing door/window headers
-      RFI = 'RFI'   # header size not on the plans - waiting on an RFI answer
+      RFI = 'RFI'   # (models from before 0.20) an opening whose header was waiting on an RFI
 
       # Header size the opening calls for. nil = waiting on an RFI.
       def header_for(opening, table = DEFAULT_HEADER_TABLE)
@@ -75,7 +75,6 @@ module DMACC
 
       HDR_PICK = '-- pick from the plans --'
       HDR_FLAT = '(2) 2x4 flat'
-      HDR_RFI = 'Not on plans - submit RFI'
 
       # Header choices for pop-ups and the openings form.
       def header_choices
@@ -84,20 +83,18 @@ module DMACC
 
       def header_from_choice(c)
         return FLAT if c == HDR_FLAT
-        return RFI if c == HDR_RFI
         SIZES.include?(c) ? c : nil
       end
 
       def header_choice(h)
         return HDR_FLAT if h == FLAT
-        return HDR_RFI if h == RFI
         SIZES.include?(h) ? h : HDR_PICK
       end
 
       def header_label(o)
         h = o['header']
         return '(2) 2x4 flat' if h == FLAT
-        return 'RFI pending' if h == RFI
+        return 'header not picked' if h == RFI
         o['plies'] ? "(#{o['plies']}) #{h}" : h.to_s
       end
 

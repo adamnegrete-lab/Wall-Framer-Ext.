@@ -163,7 +163,7 @@ module DMACC
         end
         note = opts['letters'] ? '' : '<p class="note">Pieces are listed by size and length only. You decide where each one goes.</p>'
         "<h2>Cut list - #{wall['id']}</h2>#{note}<ul>#{li.join}</ul>" \
-          '<p class="note">Header plies are listed as separate pieces. Saw kerf is 1/8" - plan your cuts so offcuts can be used for cripples.</p>'
+          '<p class="note">Header plies are listed as separate pieces.</p>'
       end
     end
   end

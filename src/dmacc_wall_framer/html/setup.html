@@ -51,21 +51,12 @@
   </div>
 
   <div id="instructor">
-    <h2>RFI answers - header tables</h2>
-    <p class="note">Header sizes come from the plans or general notes. When a student can't find one, they submit an RFI.
-      The answer comes back on its own after the delay below (students never see a timer), or answer it early from the Framing panel.
-      Non-bearing walls always answer (2) 2x4 flat. Jack studs follow the 1-jack / 2-jacks-over-6' rule.</p>
+    <h2>Header tables</h2>
+    <p class="note">Header sizes come from the plans or general notes. When one isn't called out, students use the Header table button in the Frame Wall form.
+      Wall Framer ships with the SFPA Southern Pine tables; import your own to replace them.</p>
     <div id="sfpa-status" class="note"></div>
     <p><button class="btn" id="import-sfpa">Import header tables...</button></p>
-    <details><summary>Or enter your own span table</summary>
-    <p class="note">Used only if no header tables are imported. The answer is the smallest header whose max span covers the RO width.</p>
-    <div class="row span head"><div>Header</div><div>Plies</div><div>Max span</div><div>Jacks each side</div><div></div></div>
-    <div id="spans"></div>
-    <button class="btn" id="add-span">+ Add row</button>
-    </details>
     <div class="box set" style="margin-top:8px">
-      <label for="span_conditions">Conditions the table is for (shown in the answer)</label><input id="span_conditions" placeholder="e.g. 30 psf ground snow, 28' building width, roof + ceiling">
-      <label for="rfi_delay_min">Minutes until an RFI answers itself</label><input id="rfi_delay_min" style="width:80px">
       <label for="ladder_oc">Ladder blocking spacing at partition tees (in)</label><input id="ladder_oc" style="width:80px">
     </div>
     <div style="display:none"><div id="hdrs"></div><button class="btn" id="add-hdr"></button></div>
@@ -85,13 +76,8 @@
       <label for="shop_letters">Shop drawing shows X / K / J / C letters</label><input type="checkbox" id="shop_letters">
       <label for="shop_cutlist">Shop drawing includes the cut list</label><input type="checkbox" id="shop_cutlist">
       <label for="shop_elevation">Shop drawing draws every member (off = plates and marks only)</label><input type="checkbox" id="shop_elevation">
-      <label for="kerf">Saw kerf</label><input id="kerf" style="width:100px">
       <label for="jobsite_order">Enforce job-site order (plates, openings, opening units, commons, double plate)</label><input type="checkbox" id="jobsite_order">
       <label for="framing_table">Framing table: frame each wall flat beside the house, then stand it up</label><input type="checkbox" id="framing_table">
-      <label for="student_layout">Students lay out their own common studs</label><input type="checkbox" id="student_layout">
-      <label for="guided">Pop-up framing (click a piece, enter its length; lumber pulled automatically)</label><input type="checkbox" id="guided">
-      <label for="popup_tips">Pop-ups say how to measure each piece (not the answer)</label><input type="checkbox" id="popup_tips">
-      <label for="tape_readout">Show a tape reading while marking (off = students use Tape Measure)</label><input type="checkbox" id="tape_readout">
     </div>
     <h2>Instructor password</h2>
     <p class="note">Setting a password locks these settings in this model. Save the model as your assignment file. (This stops casual changes - it is not real security.)</p>
@@ -166,15 +152,6 @@ function hdrRow(h) {
   r.appendChild(rm(r));
   return r;
 }
-function spanRow(h) {
-  var r = el('div', { 'class': 'row span' });
-  r.appendChild(options(el('select', { 'data-k': 'size' }), S.sizes.filter(function (x) { return x !== '2x4'; }), h.size || '2x8'));
-  r.appendChild(options(el('select', { 'data-k': 'plies' }), ['1', '2', '3', '4'], String(h.plies || 2)));
-  r.appendChild(el('input', { 'data-k': 'span_text', value: h.span_text || '', 'aria-label': 'Max span' }));
-  r.appendChild(options(el('select', { 'data-k': 'jacks' }), ['1', '2', '3'], String(h.jacks || 1)));
-  r.appendChild(rm(r));
-  return r;
-}
 function read(sel) {
   var out = [];
   document.querySelectorAll(sel + ' .row').forEach(function (r) {
@@ -185,7 +162,6 @@ function read(sel) {
 $('add-level').onclick = function () { $('levels').appendChild(levelRow({})); };
 $('add-type').onclick = function () { $('types').appendChild(typeRow({})); };
 $('import-sfpa').onclick = function () { call('import_sfpa'); };
-$('add-span').onclick = function () { $('spans').appendChild(spanRow({})); };
 $('add-hdr').onclick = function () { $('hdrs').appendChild(hdrRow({})); };
 $('close').onclick = function () { sketchup.close(''); };
 $('unlock').onclick = function () { call('unlock', { pw: $('pw').value }); $('pw').value = ''; };
@@ -197,16 +173,14 @@ $('save').onclick = function () {
   var p = { levels: read('#levels'), wall_types: read('#types') };
   if (S.instructor) {
     p.header_table = read('#hdrs');
-    p.span_table = read('#spans');
-    p.span_conditions = $('span_conditions').value;
     p.settings = {
       feedback: $('feedback').value, takeoff_feedback: $('takeoff_feedback').value,
       auto_cutlist: $('auto_cutlist').checked, students_edit_setup: $('students_edit_setup').checked,
       show_layout_marks: $('show_layout_marks').checked,
       shop_letters: $('shop_letters').checked, shop_cutlist: $('shop_cutlist').checked,
-      shop_elevation: $('shop_elevation').checked, kerf_text: $('kerf').value,
-      jobsite_order: $('jobsite_order').checked, framing_table: $('framing_table').checked, guided: $('guided').checked, popup_tips: $('popup_tips').checked, student_layout: $('student_layout').checked, tape_readout: $('tape_readout').checked,
-      rfi_delay_min: parseFloat($('rfi_delay_min').value) || 32, ladder_oc: parseFloat($('ladder_oc').value) || 24
+      shop_elevation: $('shop_elevation').checked,
+      jobsite_order: $('jobsite_order').checked, framing_table: $('framing_table').checked,
+      ladder_oc: parseFloat($('ladder_oc').value) || 24
     };
   }
   call('save_setup', p);
@@ -219,15 +193,10 @@ function load(state) {
   $('hdrs').innerHTML = ''; state.header_table.forEach(function (h) { $('hdrs').appendChild(hdrRow(h)); });
   $('feedback').innerHTML = ''; options($('feedback'), state.feedback_levels, state.settings.feedback);
   $('takeoff_feedback').value = state.settings.takeoff_feedback;
-  ['auto_cutlist', 'students_edit_setup', 'show_layout_marks', 'shop_letters', 'shop_cutlist', 'shop_elevation', 'jobsite_order', 'framing_table', 'student_layout', 'tape_readout', 'guided', 'popup_tips'].forEach(function (k) { $(k).checked = !!state.settings[k]; });
-  $('kerf').value = state.kerf_text;
-  $('spans').innerHTML = ''; (state.span_table || []).forEach(function (h) { $('spans').appendChild(spanRow(h)); });
-  $('span_conditions').value = state.span_conditions || '';
+  ['auto_cutlist', 'students_edit_setup', 'show_layout_marks', 'shop_letters', 'shop_cutlist', 'shop_elevation', 'jobsite_order', 'framing_table'].forEach(function (k) { $(k).checked = !!state.settings[k]; });
   $('sfpa-status').textContent = state.sfpa
     ? 'Using: ' + state.sfpa + '. First-floor walls under another level use the roof + floor table; top-level walls use the roof-only table. Span is read from the house width.'
-    : ((state.span_table || []).length ? 'Using your span table below.'
-       : 'WARNING: no header tables yet - RFIs on bearing walls will not answer themselves until you import them (or answer each RFI from the Framing panel).');
-  $('rfi_delay_min').value = state.settings.rfi_delay_min || 32;
+    : 'No header tables found.';
   $('ladder_oc').value = state.settings.ladder_oc || 24;
   $('instructor').style.display = state.instructor ? '' : 'none';
   $('login').style.display = (!state.instructor && state.locked) ? '' : 'none';

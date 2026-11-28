@@ -20,7 +20,7 @@ fd = UI::HtmlDialog.all.find { |d| d.file.to_s.end_with?('frame.html') }
 chk(fd, 'clicking the wall opens the Frame Wall form')
 fd.fire('ready')
 st = fd.last('load')
-chk(st['guided'] && st['cutlist'].map { |r| r['key'] }.first(2) == ['plate:BP', 'plate:TP:1'], 'cut list starts with the plates')
+chk(st['cutlist'].map { |r| r['key'] }.first(2) == ['plate:BP', 'plate:TP:1'], 'cut list starts with the plates')
 chk(st['stage'] == 'plates', "stage plates (#{st['stage']})")
 row = ->(k) { fd.last('rowsUpdate')['rows'].find { |r| r['key'] == k } }
 set = ->(k, v, size = nil) { fd.fire('set_row', { 'key' => k, 'v' => v, 'size' => size }) }

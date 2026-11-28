@@ -1,8 +1,8 @@
 module DMACC
   module WallFramer
-    # Demo tool (cat's paw): hover a framing member, click to pull it. Pieces go
-    # on the offcut pile. Pulling something another piece rests on asks first.
-    # Also takes off double plate pieces and erases pencil marks. Esc = Frame.
+    # Demo tool (cat's paw): hover a framing member, click to pull it. Pulling
+    # something another piece rests on asks first. Also takes off double plate
+    # pieces. Esc = Frame.
     class DemoTool < GuidedTool
       def activate
         super
@@ -24,7 +24,7 @@ module DMACC
         view.invalidate
       end
 
-      # @hit = [:piece, group, slot] | [:dtp, group, span] | [:pencil, group, x]
+      # @hit = [:piece, group, slot] | [:dtp, group, span]
       def pick(view, x, y)
         ray = view.pickray(x, y)
         @hit = nil
@@ -49,14 +49,6 @@ module DMACC
           @hit = [:dtp, g, sp]
           return
         end
-        # a pencil mark on the bottom plate
-        if lz <= Framing::T + 1.5
-          pen = (p['pencil'] || []).map(&:to_f).min_by { |m| (m - lx).abs }
-          if pen && (pen - lx).abs <= 1.5
-            @hit = [:pencil, g, pen]
-            return
-          end
-        end
         slots = Builder.work_slots(p).select { |s| s.id != 'TP:2' && Inspector.complete?(e[s.id]) }
         slot = Framing.slot_at(slots, lx, lz)
         @hit = [:piece, g, slot] if slot
@@ -73,7 +65,6 @@ module DMACC
         kind, g, what = @hit
         case kind
         when :dtp then take_off_dtp(g, (what['a'] + what['b']) / 2.0)
-        when :pencil then erase_pencil(g, what)
         when :piece then demo_piece(g, what)
         end
         @hit = nil
@@ -82,39 +73,13 @@ module DMACC
         view.invalidate
       end
 
-      def menu_items(menu, _flags = nil, x = nil, y = nil, view = nil)
-        pick(view, x, y) if view && x
-        return unless @hit
-        menu.add_item("Pull #{hit_label}") { onLButtonDown(0, x || 0, y || 0, view || Sketchup.active_model.active_view) }
-      end
-
       # ---------- pulling ----------
 
       PLATES = %w[BP TP:1].freeze
 
-      # What's resting on / nailed to this piece (and what rests on those).
-      def resting_on(p, slot)
-        ws = Builder.work_slots(p)
-        e = p['entries'] || {}
-        on = ->(s) { Inspector.complete?(e[s.id]) && s.id != 'TP:2' }
-        if PLATES.include?(slot.id)
-          return ws.select { |s| on.call(s) && s.id != slot.id && !PLATES.include?(s.id) }
-        end
-        return [] unless slot.opening
-        same = ws.select { |s| s.opening == slot.opening && on.call(s) }
-        role = slot.expected['role']
-        blocks = same.select { |s| s.label.include?('header block') }
-        case role
-        when 'King Stud' then same.select { |s| %w[Jack\ Stud Header Rough\ Sill].include?(s.expected['role']) } + blocks
-        when 'Jack Stud' then same.select { |s| %w[Header Rough\ Sill].include?(s.expected['role']) } + blocks
-        when 'Header' then blocks
-        else []
-        end
-      end
-
       def demo_piece(g, slot)
         p = Builder.params_of(g)
-        more = resting_on(p, slot)
+        more = Builder.resting_on(p, slot)
         dtp = PLATES.include?(slot.id) && Builder.dtp_piece_at(g, p['length'].to_f / 2.0)
         unless more.empty? && !dtp
           n = more.size + (dtp ? 1 : 0)
@@ -127,11 +92,8 @@ module DMACC
         model.start_operation("Demo #{slot.label}", true)
         Builder.remove_dtp(g) if dtp
         pulled = (more + [slot]).flat_map { |s| pull_all(g, s) }
-        Yard.change do |y|
-          pulled.each { |pc| y['offcuts'] << { 'id' => YardLogic.new_id(y, 'O'), 'size' => pc['size'], 'length' => pc['length'].to_f } }
-        end
         model.commit_operation
-        Sketchup.status_text = "Pulled #{slot.label}#{more.empty? ? '' : " + #{more.size} more"} - #{pulled.size} board#{pulled.size == 1 ? '' : 's'} on the offcut pile."
+        Sketchup.status_text = "Pulled #{slot.label}#{more.empty? ? '' : " + #{more.size} more"} (#{pulled.size} board#{pulled.size == 1 ? '' : 's'})."
       end
 
       # Every board in a slot (all header plies, every backing block).
@@ -144,19 +106,10 @@ module DMACC
         out
       end
 
-      def erase_pencil(g, x)
-        m = Sketchup.active_model
-        m.start_operation('Erase Pencil Mark', true)
-        Builder.remove_pencil(g, x)
-        m.commit_operation
-        Sketchup.status_text = "Erased the pencil mark at #{Framing.fmt_len(x)}."
-      end
-
       def hit_label
         kind, g, what = @hit
         case kind
         when :dtp then "#{Builder.params_of(g)['id']} double plate piece ##{what['n']}"
-        when :pencil then "pencil mark at #{Framing.fmt_len(what)}"
         else what.label
         end
       end
@@ -175,9 +128,6 @@ module DMACC
           z = p['height'].to_f
           draw_box(view, g.transformation, [what['a'], 0, z - Framing::T], [what['b'], d, z], 'red', 4)
           at = Geom::Point3d.new((what['a'] + what['b']) / 2.0, d, z)
-        when :pencil
-          draw_box(view, g.transformation, [what - 0.5, 0, 0], [what + 0.5, d, Framing::T + 0.2], 'red', 4)
-          at = Geom::Point3d.new(what, 0, Framing::T)
         else
           x0, z0, x1, z1 = Framing.slot_box(what)
           draw_box(view, g.transformation, [x0, 0, z0], [x1, d, z1], 'red', 4)

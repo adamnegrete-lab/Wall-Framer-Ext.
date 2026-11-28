@@ -316,3 +316,9 @@ module Sketchup
   end
 end
 module Geom; class Vector3d; def reverse! = (@x, @y, @z = -x, -y, -z; self); end; end
+module Sketchup
+  class Group
+    def erase! = (Sketchup.active_model.entities.instance_variable_get(:@items).delete(self); @deleted = true)
+    def deleted? = !!@deleted
+  end
+end

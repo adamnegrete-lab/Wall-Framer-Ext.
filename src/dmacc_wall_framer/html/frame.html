@@ -10,28 +10,14 @@
   header { padding: 10px 14px; background: var(--bg); border-bottom: 1px solid var(--line); }
   header h1 { font-size: 16px; margin: 0 0 2px; }
   header .meta { color: var(--mute); }
-  nav { display: flex; gap: 4px; padding: 8px 14px 0; border-bottom: 1px solid var(--line); }
-  nav button { border: 1px solid var(--line); border-bottom: none; background: var(--bg); padding: 6px 12px; cursor: pointer; border-radius: 4px 4px 0 0; font: inherit; }
-  nav button.on { background: #fff; font-weight: 600; position: relative; top: 1px; }
   main { padding: 12px 14px 80px; }
-  .tab { display: none; } .tab.on { display: block; }
   h2 { font-size: 14px; margin: 16px 0 6px; padding-bottom: 3px; border-bottom: 1px solid var(--line); }
   .row { display: grid; gap: 6px; align-items: center; padding: 5px 4px; border-bottom: 1px solid #eee; }
-  .slot { grid-template-columns: 26px 1fr 230px 26px; }
-  .empty { color: #999; }
   .op { grid-template-columns: 64px 84px 1fr 1fr 1fr 1fr 150px 56px 26px; }
-  .op .rfi { grid-column: 1 / -1; font-size: 12px; color: var(--ok); background: var(--okbg); padding: 4px 6px; border-radius: 3px; }
   input:disabled { background: #eee; color: #999; }
   .head { font-weight: 600; color: var(--mute); font-size: 12px; border-bottom: 1px solid var(--line); }
-  .num { color: var(--mute); text-align: right; }
   select, input { font: inherit; padding: 3px 5px; border: 1px solid #aaa; border-radius: 3px; width: 100%; background: #fff; }
-  input.bad, select.bad { border: 2px solid var(--err); background: var(--errbg); }
-  .row.err { background: var(--errbg); }
-  .row.okrow { background: var(--okbg); }
   .row.hl { background: var(--hl); }
-  .msg { grid-column: 2 / -1; color: var(--err); font-size: 12px; }
-  .msg .hint { color: var(--ink); display: block; margin-top: 2px; }
-  .msg .fix { display: inline-block; margin-top: 3px; }
   .icon { cursor: pointer; border: none; background: none; font-size: 14px; padding: 0; }
   .bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); padding: 8px 14px; display: flex; gap: 8px; align-items: center; }
   .bar .spacer { flex: 1; }
@@ -41,9 +27,7 @@
   .summary.err { background: var(--errbg); color: var(--err); border: 1px solid #e6b8b4; }
   .summary.ok { background: var(--okbg); color: var(--ok); border: 1px solid #b9d9c0; }
   .errlist { margin: 4px 0 0 18px; padding: 0; }
-  .errlist a { color: var(--err); cursor: pointer; text-decoration: underline; }
   .note { color: var(--mute); font-size: 12px; margin: 4px 0; }
-  .progress { color: var(--mute); }
   .cl { grid-template-columns: 1fr 86px 190px 1.1fr; }
   .cl .lab { font-weight: 500; }
   .cl .st { font-size: 12px; color: var(--mute); }
@@ -68,16 +52,20 @@
   <h1 id="title">Wall</h1>
   <div class="meta" id="meta"></div>
 </header>
-<nav>
-  <button data-tab="openings" class="on">1. Openings</button>
-  <button data-tab="cutlist">2. Cut list</button>
-  <button data-tab="framing">2. Frame the wall</button>
-</nav>
 <main>
-  <section class="tab on" id="tab-openings">
-    <h2 id="op-head" style="display:none">Openings</h2>
+  <div class="nexthint" id="next"></div>
+  <div id="cl-summary"></div>
+  <p class="note">Work down the page like the job: plates, then the openings, then corners, backing and studs.
+    A row goes into the wall as soon as you press Enter (or pick from a list) - if it has to wait for something, it says what. Come back and change any row any time.
+    Keep the Tape Measure handy: measure the openings on the table for cripples, headers and header blocks.
+    Lengths: 92 5/8 or 7' 8-5/8". Plates over 16' get spliced - type each piece from the layout start with a comma between.</p>
+  <div class="row cl head"><div>Piece</div><div>Lumber</div><div>Cut length / choice</div><div>Status</div></div>
+  <div id="cl-plates"></div>
+
+  <section id="openings">
+    <h2 id="op-head">Openings</h2>
     <p class="note">Enter every door and window in this wall from the plans: the mark from the schedule, the position, the rough opening and the header.
-      <strong>Positions are measured from the layout start</strong> (the arrow end of the wall). You can keep using the Tape Measure while this window is open.</p>
+      <strong>Positions are measured from the layout start</strong> (the arrow end of the wall).</p>
     <div id="op-errors"></div>
     <div class="row op head"><div>Mark</div><div>Type</div><div>Position</div><div>RO width</div><div>RO height</div><div>Head height (windows)</div><div>Header (plans)</div><div>Plies</div><div></div></div>
     <div id="ops"></div>
@@ -85,62 +73,36 @@
       &nbsp; Position measured to:
       <select id="pos-mode" style="width:auto"><option value="center">center of the RO</option><option value="left">near edge of the RO (closest to the arrow)</option></select></p>
     <div id="hdr-panel" style="display:none"></div>
-    <p class="note">Lengths: type feet and inches like 7' 8-5/8" or inches like 92 5/8. Header size: take it off the plans. Not called out there? Look it up in the Header table.</p>
-    <p id="op-inline" style="display:none"><button class="btn primary" id="save-ops2">Save openings</button>
-      <button class="btn" id="no-ops2">No openings in this wall</button> <span class="note" id="op-saved"></span></p>
+    <p class="note">Header size: take it off the plans. Not called out there? Look it up in the Header table.</p>
+    <p><button class="btn primary" id="save-ops">Save openings</button> <span class="note" id="op-saved"></span>
+      <span style="float:right"><button class="btn" id="no-ops">No openings in this wall</button></span></p>
   </section>
 
-  <section class="tab" id="tab-cutlist">
-    <div class="nexthint" id="next"></div>
-    <div id="cl-summary"></div>
-    <p class="note">Work down the page like the job: plates, then the openings, then corners, backing and studs.
-      A row goes into the wall as soon as you press Enter (or pick from a list) - if it has to wait for something, it says what. Come back and change any row any time.
-      Keep the Tape Measure handy: measure the openings on the table for cripples, headers and header blocks.
-      Lengths: 92 5/8 or 7' 8-5/8". Plates over 16' get spliced - type each piece from the layout start with a comma between.</p>
-    <div class="row cl head"><div>Piece</div><div>Lumber</div><div>Cut length / choice</div><div>Status</div></div>
-    <div id="cl-plates"></div>
-    <div id="op-slot"></div>
-    <div id="cl"></div>
-  </section>
-
-  <section class="tab" id="tab-framing">
-    <div id="summary"></div>
-    <p class="note">Frame this wall in the model: pull boards from the material yard, cut them, and nail them into the gray layout marks with the install tool. This list shows what is nailed in where. <span class="progress" id="progress"></span></p>
-    <div class="row slot head"><div>#</div><div>Location</div><div>Nailed in</div><div></div></div>
-    <div id="slots"></div>
-  </section>
+  <div id="cl"></div>
 </main>
 <div class="bar">
   <span id="status" class="note"></span>
   <span class="spacer"></span>
-  <button class="btn" id="no-ops">No openings in this wall</button>
-  <button class="btn primary" id="save-ops">Save openings</button>
-  <button class="btn" id="shop" style="display:none">Shop drawing</button>
-  <button class="btn" id="save-entries" style="display:none">Go frame it (yard + tools)</button>
   <button class="btn primary" id="stand" style="display:none">Build and stand wall</button>
-  <button class="btn primary" id="inspect" style="display:none">Request inspection</button>
-  <button class="btn" id="continue" style="display:none" title="Put the Tape Measure down and pick the wall back up">Continue framing</button>
-  <button class="btn" id="next-wall" style="display:none">Frame next wall</button>
+  <button class="btn" id="continue" title="Put the Tape Measure down and pick the wall back up">Continue framing</button>
+  <button class="btn" id="next-wall">Frame next wall</button>
 </div>
 
 <script>
-var S = null;           // state from Ruby
-var issuesBySlot = {};  // slot_id -> issue
+var S = null; // state from Ruby
 
 function $(id) { return document.getElementById(id); }
 function el(tag, attrs, kids) {
   var e = document.createElement(tag);
   for (var k in (attrs || {})) {
     if (k === 'text') e.textContent = attrs[k];
-    else if (k === 'html') e.innerHTML = attrs[k];
     else if (k.slice(0, 2) === 'on') e.addEventListener(k.slice(2), attrs[k]);
     else e.setAttribute(k, attrs[k]);
   }
   (kids || []).forEach(function (c) { if (c) e.appendChild(c); });
   return e;
 }
-function options(sel, list, value, blank) {
-  if (blank) sel.appendChild(el('option', { value: '', text: blank }));
+function options(sel, list, value) {
   list.forEach(function (v) {
     var o = el('option', { value: v, text: v });
     if (v === value) o.selected = true;
@@ -152,32 +114,15 @@ function call(name, payload) {
   $('status').textContent = 'Working...';
   sketchup[name](JSON.stringify(payload || {}));
 }
-
-// ---------- tabs ----------
-document.querySelectorAll('nav button').forEach(function (b) {
-  b.addEventListener('click', function () { showTab(b.dataset.tab); });
-});
-function showTab(t) {
-  if (S && S.guided) t = 'cutlist'; // one page in guided mode
-  document.querySelectorAll('nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
-  document.querySelectorAll('.tab').forEach(function (s) { s.classList.toggle('on', s.id === 'tab-' + t); });
-  $('save-ops').style.display = t === 'openings' ? '' : 'none';
-  $('no-ops').style.display = t === 'openings' && !document.querySelectorAll('#ops .row').length ? '' : 'none';
-  $('save-entries').style.display = t === 'framing' ? '' : 'none';
-  $('shop').style.display = t === 'framing' ? '' : 'none';
-  $('inspect').style.display = t === 'framing' ? '' : 'none';
-  $('next-wall').style.display = t === 'cutlist' ? '' : 'none';
-  $('continue').style.display = t === 'cutlist' ? '' : 'none';
-  $('stand').style.display = t === 'cutlist' && S && S.ready_to_build ? '' : 'none';
-  if (S && S.guided) {
-    $('save-ops').style.display = 'none'; $('no-ops').style.display = 'none';
-    $('no-ops2').style.display = document.querySelectorAll('#ops .row').length ? 'none' : '';
-  }
+function refreshButtons() {
+  $('stand').style.display = S && S.ready_to_build ? '' : 'none';
+  // only with no opening rows, so it can't wipe out openings by mistake
+  $('no-ops').style.display = document.querySelectorAll('#ops .row').length ? 'none' : '';
 }
 
 // ---------- openings ----------
 function opRow(o) {
-  var r = el('div', { 'class': 'row op' + (o.rfi_note ? ' okrow' : '') });
+  var r = el('div', { 'class': 'row op' });
   r.appendChild(el('input', { value: o.mark || '', placeholder: 'W1', 'data-k': 'mark', 'aria-label': 'Mark' }));
   var t = options(el('select', { 'data-k': 'type', 'aria-label': 'Type' }), ['Window', 'Door'], o.type || 'Window');
   r.appendChild(t);
@@ -188,14 +133,13 @@ function opRow(o) {
   r.appendChild(hdr);
   var pl = options(el('select', { 'data-k': 'plies', 'aria-label': 'Header plies' }), ['--', '1', '2', '3'], o.plies ? String(o.plies) : '--');
   r.appendChild(pl);
-  r.appendChild(el('button', { 'class': 'icon', title: 'Remove opening', text: '✕', onclick: function () { r.remove(); showTab('openings'); } }));
-  if (o.rfi_note) r.appendChild(el('div', { 'class': 'rfi', text: o.rfi_note }));
+  r.appendChild(el('button', { 'class': 'icon', title: 'Remove opening (then Save openings)', text: '✕', onclick: function () { r.remove(); refreshButtons(); } }));
   function sync() {
     var head = r.querySelector('[data-k=sill_text]');
     var door = t.value === 'Door';
     head.disabled = door; if (door) head.value = '';
     head.placeholder = door ? 'n/a' : '';
-    var fixed = hdr.value === S.hdr_flat || hdr.value === S.hdr_rfi;
+    var fixed = hdr.value === S.hdr_flat;
     pl.disabled = fixed; if (fixed) pl.value = '--';
   }
   t.addEventListener('change', sync); hdr.addEventListener('change', sync); sync();
@@ -210,60 +154,11 @@ function readOps() {
   });
   return out;
 }
-$('add-op').addEventListener('click', function () { $('ops').appendChild(opRow({})); showTab('openings'); });
+$('add-op').addEventListener('click', function () { $('ops').appendChild(opRow({})); refreshButtons(); });
 $('no-ops').addEventListener('click', function () { call('save_openings', { openings: [], pos_mode: $('pos-mode').value }); });
-$('save-ops').addEventListener('click', function () {
-  call('save_openings', { openings: readOps(), pos_mode: $('pos-mode').value });
-});
+$('save-ops').addEventListener('click', function () { call('save_openings', { openings: readOps(), pos_mode: $('pos-mode').value }); });
 
-// ---------- slots ----------
-function slotRow(s, n) {
-  var r = el('div', { 'class': 'row slot' + (s.flagged ? ' err' : ''), id: 'slot-' + s.id, 'data-id': s.id, 'data-done': s.installed ? '1' : '' });
-  r.appendChild(el('div', { 'class': 'num', text: n }));
-  r.appendChild(el('div', { text: s.label }));
-  r.appendChild(el('div', { 'class': s.installed ? '' : 'empty', text: s.installed || 'open' }));
-  r.appendChild(el('button', { 'class': 'icon', title: 'Show in model', text: '🔍', onclick: function () { call('zoom', { slot: s.id }); markHl(s.id); } }));
-  return r;
-}
-function renderSlots() {
-  var box = $('slots');
-  box.innerHTML = '';
-  var group = null, n = 0;
-  S.slots.forEach(function (s) {
-    if (s.group !== group) { group = s.group; box.appendChild(el('h2', { text: group })); }
-    n += 1;
-    box.appendChild(slotRow(s, n));
-  });
-  updateProgress();
-}
-function readEntries() {
-  var out = {};
-  document.querySelectorAll('#slots .row').forEach(function (r) {
-    var e = {};
-    r.querySelectorAll('[data-k]').forEach(function (f) { e[f.dataset.k] = f.value; });
-    if (e.role || e.size || e.length) out[r.dataset.id] = e;
-  });
-  return out;
-}
-function updateProgress() {
-  var rows = document.querySelectorAll('#slots .row'), done = 0;
-  rows.forEach(function (r) { if (r.dataset.done) done += 1; });
-  $('progress').textContent = done + ' of ' + rows.length + ' locations framed.';
-}
-function markHl(id) {
-  document.querySelectorAll('#slots .row').forEach(function (r) { r.classList.toggle('hl', r.dataset.id === id); });
-}
-function clearIssue(id) {
-  var r = $('slot-' + id);
-  if (!r) return;
-  r.classList.remove('err');
-  var m = r.querySelector('.msg'); if (m) m.remove();
-}
-$('save-entries').addEventListener('click', function () { call('go_frame', {}); });
-$('shop').addEventListener('click', function () { call('shop', {}); });
-$('inspect').addEventListener('click', function () { call('inspect', {}); });
-
-// ---------- cut list (guided) ----------
+// ---------- cut list ----------
 var clKeys = '', lastStage = null;
 function clInput(r) {
   var f;
@@ -346,9 +241,8 @@ function flagRows() {
   }
 }
 function gotoRow(key) {
-  showTab('cutlist');
   var row = $('cl-' + key); if (!row) return;
-  document.querySelectorAll('#cl .row').forEach(function (x) { x.classList.toggle('hl', x === row); });
+  document.querySelectorAll('.row.cl').forEach(function (x) { x.classList.toggle('hl', x === row); });
   row.scrollIntoView({ block: 'center' });
   var f = row.querySelector('[data-key]'); if (f) setTimeout(function () { f.focus(); if (f.select) f.select(); }, 30);
 }
@@ -362,13 +256,11 @@ function rowsUpdate(u) {
     if (row) { row.className = 'row cl error'; row.querySelector('.st').textContent = u.err; }
     $('status').textContent = u.err;
   } else $('status').textContent = r ? r.label + ': ' + (r.note || 'saved.') : 'Saved.';
-  showTab(document.querySelector('nav button.on').dataset.tab);
+  refreshButtons();
 }
 $('stand').addEventListener('click', function () { call('build_stand', {}); });
 $('next-wall').addEventListener('click', function () { call('frame_next', {}); });
 $('continue').addEventListener('click', function () { call('continue', {}); });
-$('save-ops2').addEventListener('click', function () { $('save-ops').click(); });
-$('no-ops2').addEventListener('click', function () { $('no-ops').click(); });
 
 // ---------- header table ----------
 function ftIn(i) { var f = Math.floor(i / 12), r = i - f * 12; return r ? f + "' " + r + '"' : f + "'"; }
@@ -386,11 +278,11 @@ function headerTable(key, title) {
   });
   return tb;
 }
-$('hdr-btn').addEventListener('click', function () {
+function showHeaderTable(on) {
   var p = $('hdr-panel');
-  if (p.style.display !== 'none') { p.style.display = 'none'; $('hdr-btn').textContent = 'Header table'; return; }
+  if (!on) { p.style.display = 'none'; $('hdr-btn').textContent = 'Header table'; return; }
   p.innerHTML = '';
-  if (!S.header_tables) { p.appendChild(el('p', { 'class': 'note', text: 'No header table is set up - ask your instructor.' })); }
+  if (!S.header_tables) p.appendChild(el('p', { 'class': 'note', text: 'No header table is set up - ask your instructor.' }));
   else {
     p.appendChild(el('p', { 'class': 'note', text: 'Use this only when the plans or general notes don\'t call out the header. ' +
       'Building width = the width the roof (and floor) span across. Read across from the opening width to the building width; (2) 2x10 means two 2x10s. ' +
@@ -399,125 +291,44 @@ $('hdr-btn').addEventListener('click', function () {
     p.appendChild(headerTable('roof_floor', 'Header supports the roof and one floor'));
   }
   p.style.display = ''; $('hdr-btn').textContent = 'Hide header table';
-});
-
-// ---------- inspection results ----------
-function showInspection(res) {
-  issuesBySlot = {};
-  document.querySelectorAll('#slots .row').forEach(function (r) { clearIssue(r.dataset.id); r.classList.remove('okrow'); });
-  var box = $('summary');
-  box.innerHTML = '';
-  if (!res) return;
-  var passed = res.correct === res.total;
-  var sum = el('div', { 'class': 'summary ' + (passed ? 'ok' : 'err') });
-  sum.appendChild(el('strong', { text: res.summary }));
-  if (res.issues.length) {
-    sum.appendChild(el('div', { text: 'Fix these, then request inspection again:' }));
-    var ul = el('ul', { 'class': 'errlist' });
-    res.issues.forEach(function (i) {
-      issuesBySlot[i.slot_id] = i;
-      ul.appendChild(el('li', {}, [el('a', { text: i.label + ' - ' + i.message, onclick: function () { goTo(i.slot_id); } })]));
-    });
-    sum.appendChild(ul);
-  } else if (!passed && res.level === 'count') {
-    sum.appendChild(el('div', { text: 'Your instructor has set feedback to count only. Re-check your work against the plans.' }));
-  }
-  box.appendChild(sum);
-  res.issues.forEach(function (i) {
-    var r = $('slot-' + i.slot_id);
-    if (!r) return;
-    r.classList.add('err');
-    var m = el('div', { 'class': 'msg', text: i.message });
-    if (i.hint) m.appendChild(el('span', { 'class': 'hint', text: 'Why: ' + i.hint }));
-    if (i.fix) {
-      var fx = el('span', { 'class': 'fix' });
-      fx.appendChild(document.createTextNode('Should be: ' + i.fix.size + ' x ' + i.fix.length_text + ' (' + i.fix.role + ')'));
-
-      m.appendChild(fx);
-    }
-    r.appendChild(m);
-  });
 }
-function goTo(id) {
-  var r = $('slot-' + id);
-  if (r) { r.scrollIntoView({ block: 'center' }); markHl(id); }
-  call('zoom', { slot: id });
-}
-function applyFix(i) {
-  var r = $('slot-' + i.slot_id);
-  r.querySelector('[data-k="role"]').value = i.fix.role;
-  r.querySelector('[data-k="size"]').value = i.fix.size;
-  r.querySelector('[data-k="length"]').value = i.fix.length_text;
-  clearIssue(i.slot_id); updateProgress();
-}
+$('hdr-btn').addEventListener('click', function () { showHeaderTable($('hdr-panel').style.display === 'none'); });
 
 // ---------- called from Ruby ----------
 function load(state) {
   S = state;
   $('title').textContent = state.wall.id + ' - ' + state.wall.type;
   $('meta').textContent = state.wall.level + '  |  ' + state.wall.length_text + ' long  |  ' +
-    state.wall.stud + ' @ ' + state.wall.spacing + '" O.C.  |  ' + state.wall.height_text + ' overall height';
+    state.wall.stud + ' @ ' + state.wall.spacing + '" O.C.  |  ' + state.wall.height_text + ' overall height' +
+    '  |  layout starts at the ' + state.start_side.toUpperCase() + ' end (as it lies on the table)';
   $('ops').innerHTML = '';
   state.openings.forEach(function (o) { $('ops').appendChild(opRow(o)); });
   $('pos-mode').value = state.pos_mode || 'center';
-  document.querySelector('nav button[data-tab=framing]').style.display = state.guided ? 'none' : '';
-  document.querySelector('nav button[data-tab=cutlist]').style.display = state.guided ? '' : 'none';
-  if (state.guided) {
-    clKeys = '';
-    renderCut(state.cutlist);
-    $('next').textContent = state.next;
-    // one page, in job order: the openings table sits between the plates and the rest
-    var ot = $('tab-openings');
-    if (ot.parentNode !== $('op-slot')) { $('op-slot').appendChild(ot); }
-    ot.classList.add('on'); ot.style.display = 'block';
-    $('op-head').style.display = ''; $('op-inline').style.display = '';
-    document.querySelector('nav').style.display = 'none';
-    showTab('cutlist');
-    ot.style.display = 'block';
-    var wantOps = state.stage === 'openings' || state.openings.some(function (o) { return o.rfi_note; });
-    if (wantOps && (state.stage !== lastStage || state.openings.some(function (o) { return o.rfi_note; })))
-      setTimeout(function () { $('op-head').scrollIntoView({ block: 'start' }); }, 30);
-    lastStage = state.stage;
-    $('meta').textContent += '  |  layout starts at the ' + state.start_side.toUpperCase() + ' end (as it lies on the table)';
-  } else if (document.querySelector('nav button.on').dataset.tab === 'cutlist') showTab('framing');
-  if (state.prefill) {
-    var r = opRow({ x_text: state.prefill.x_text });
-    $('ops').appendChild(r);
-    showTab('openings');
-    setTimeout(function () { r.querySelector('[data-k=mark]').focus(); }, 50);
-  }
-  renderSlots();
-  showInspection(state.inspection);
-  showTab(document.querySelector('nav button.on').dataset.tab);
-  $('status').textContent = state.saved_note || '';
-  if (state.guided && state.goto_row) gotoRow(state.goto_row);
+  clKeys = '';
+  renderCut(state.cutlist);
+  $('next').textContent = state.next;
+  if (state.stage === 'openings' && state.stage !== lastStage)
+    setTimeout(function () { $('op-head').scrollIntoView({ block: 'start' }); }, 30);
+  lastStage = state.stage;
+  refreshButtons();
+  $('status').textContent = '';
+  if (state.goto_row) gotoRow(state.goto_row);
+  if (state.show_header_table) showHeaderTable(true);
 }
 function openingErrors(errs) {
   var b = $('op-errors');
   b.innerHTML = '';
   if (!errs.length) { $('status').textContent = 'Openings saved.'; return; }
-  var s = el('div', { 'class': 'summary err' }, [el('strong', { text: "Openings not saved - fix these:" })]);
+  var s = el('div', { 'class': 'summary err' }, [el('strong', { text: 'Openings not saved - fix these:' })]);
   var ul = el('ul', { 'class': 'errlist' });
   errs.forEach(function (e) { ul.appendChild(el('li', { text: e })); });
   s.appendChild(ul); b.appendChild(s);
   $('status').textContent = '';
 }
-function entryErrors(errs) {
-  // errs: {slot_id: message} for lengths we couldn't read
-  var n = 0;
-  for (var id in errs) {
-    n += 1;
-    var r = $('slot-' + id); if (!r) continue;
-    r.classList.add('err');
-    r.querySelector('[data-k="length"]').classList.add('bad');
-    r.appendChild(el('div', { 'class': 'msg', text: errs[id] }));
-  }
-  $('status').textContent = n ? n + " length(s) couldn't be read - see red rows." : 'Members installed.';
-}
 function setStatus(t) { $('status').textContent = t; }
 function afterOps() {
-  if (S && S.guided) { $('op-saved').textContent = 'Openings saved - their framing rows are below.'; var c = $('cl'); if (c.firstChild) c.firstChild.scrollIntoView({ block: 'start' }); }
-  else showTab('framing');
+  $('op-saved').textContent = 'Openings saved - their framing rows are below.';
+  var c = $('cl'); if (c.firstChild) c.firstChild.scrollIntoView({ block: 'start' });
 }
 
 window.onload = function () { sketchup.ready(''); };

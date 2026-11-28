@@ -9,14 +9,12 @@ g = Builder.create_wall(Geom::Point3d.new(0, 0, 0), Geom::Point3d.new(192, 0, 0)
 p = Builder.params_of(g)
 p['openings'] = [{ 'mark' => 'W1', 'type' => 'Window', 'x' => 60.0, 'width' => 36.0, 'height' => 82.5, 'sill' => 34.5, 'header' => '2x10', 'plies' => 3 }]
 p['openings_done'] = true
-p['pencil'] = [40.0]
 Builder.set_params(g, p)
 p = Builder.params_of(g)
 p['entries'] = Builder.work_slots(p).select { |s| %w[plates opening].include?(s.phase) }.to_h do |s|
   [s.id, s.expected.merge('pieces' => Array.new(s.plies || 1) { { 'size' => s.expected['size'], 'length' => s.expected['length'] } })]
 end
 Builder.set_params(g, p); Builder.rebuild(g)
-off0 = Yard.data['offcuts'].size
 DMACC::WallFramer.demo_tool
 tool = M.instance_variable_get(:@tool) || DMACC::WallFramer.instance_variable_get(:@demo)
 chk(tool.is_a?(DemoTool), 'Demo button picks up the cat\'s paw')
@@ -26,7 +24,7 @@ at = ->(role) { s = Builder.work_slots(Builder.params_of(g)).find { |x| x.expect
 hs = at.('Header'); tool.onMouseMove(0, 0, 0, V)
 chk(tool.instance_variable_get(:@hit)&.dig(2)&.id == hs.id, 'hovering the header targets it')
 tool.onLButtonDown(0, 0, 0, V)
-chk(!Builder.params_of(g)['entries'][hs.id] && Yard.data['offcuts'].size == off0 + 3, 'header pulled - all 3 plies on the offcut pile')
+chk(!Builder.params_of(g)['entries'][hs.id], 'header pulled - all 3 plies')
 # a jack: the sill rests on it -> asks, pulls both
 UI.answers[:msg] = IDYES
 js = at.('Jack Stud'); tool.onMouseMove(0, 0, 0, V); tool.onLButtonDown(0, 0, 0, V)
@@ -39,9 +37,6 @@ ks = at.('King Stud'); tool.onMouseMove(0, 0, 0, V)
 before = Builder.params_of(g)['entries'].keys.size
 tool.onLButtonDown(0, 0, 0, V)
 chk(Builder.params_of(g)['entries'].keys.size == before || Builder.params_of(g)['entries'][ks.id], 'No = nothing pulled')
-# pencil mark erased
-face.(40.2, 1.0); tool.onMouseMove(0, 0, 0, V); tool.onLButtonDown(0, 0, 0, V)
-chk(Builder.params_of(g)['pencil'].empty?, 'pencil mark erased')
 # Esc -> back to framing
 tool.onCancel(0, V)
 chk(Dialogs.tool.is_a?(GuidedTool) && !Dialogs.tool.is_a?(DemoTool), 'Esc goes back to the Frame tool')

@@ -193,15 +193,9 @@ module DMACC
 
       # nil = can be framed now; otherwise the job-site reason it can't.
       def gate_reason(params, slot, slots = nil)
-        # An opening waiting on an RFI is on hold - nothing in it gets framed yet
-        if slot.opening && (op = params['openings'].find { |o| o['mark'] == slot.opening }) && op['header'] == Framing::RFI && !op['rfi']
-          return "#{slot.opening} is on hold - your RFI isn't submitted yet. Click any #{slot.opening} spot to write it."
-        end
-        if slot.opening && (op = params['openings'].find { |o| o['mark'] == slot.opening }) && op['header'] == Framing::RFI && op['rfi_new']
-          return "RFI ##{op['rfi_new']} is answered - click #{slot.opening} to read it and update the opening."
-        end
+        # (models from before 0.20 can have an opening still waiting on an RFI: no header picked yet)
         if slot.opening && (op = params['openings'].find { |o| o['mark'] == slot.opening }) && op['header'] == Framing::RFI
-          return "#{slot.opening} is on hold - waiting on the answer to RFI ##{op['rfi']} (header size). Frame another opening or wall in the meantime."
+          return "Pick #{slot.opening}'s header size in Openings (from the plans, or the Header table)."
         end
         return nil unless Project.settings['jobsite_order']
         if slot.id == 'TP:2'
@@ -288,7 +282,6 @@ module DMACC
           p['openings'] = p['openings'].map { |op| op.merge('x' => op['x'].to_f - delta) }
           if framed?(p)
             pulled = (p['entries'] || {}).values.flat_map { |e| e['pieces'] || [] }
-            Yard.change { |y| pulled.each { |pc| y['offcuts'] << { 'id' => YardLogic.new_id(y, 'O'), 'size' => pc['size'], 'length' => pc['length'].to_f } } }
             %w[marks pencil corners oc last_inspection].each { |k| p.delete(k) }
             p['entries'] = {}
             p['flags'] = []
@@ -391,35 +384,13 @@ module DMACC
             z += oc
           end
         end
-        kerf = (Project.settings['kerf'] || YardLogic::KERF).to_f
-        pieces = []
-        geom.each do |g|
-          pc = err = nil
-          Yard.change { |y| y['hand'] = nil; pc, err = YardLogic.supply(y, g['size'], g['length'], kerf); YardLogic.install(y, pc['id']) if pc }
-          return err if err
-          pieces << { 'id' => pc['id'], 'size' => pc['size'], 'length' => pc['length'] }
-        end
+        pieces = geom.map { |g| Stock.piece(g['size'], g['length']) }
         p = params_of(group)
         (p['entries'] ||= {})[slot.id] = { 'role' => 'Partition Backing', 'size' => size, 'length' => geom.sum { |g| g['length'] },
                                            'auto' => true, 'kind' => kind, 'geom' => geom, 'pieces' => pieces }
         touch(p, slot.id)
         set_params(group, p)
         rebuild(group)
-        nil
-      end
-
-      # Corners chosen + O.C. chosen -> lay out and nail every common, end stud
-      # and corner post with precuts from the yard. Returns error or nil.
-      def auto_frame_commons(group)
-        p = params_of(group)
-        p['marks'] = Framing.auto_marks(p, p['oc'])
-        set_params(group, p)
-        rebuild(group)
-        work_slots(params_of(group)).select { |s| s.phase == 'commons' && s.kind != :backing }.each do |s|
-          next if Inspector.slot_done?(s, (params_of(group)['entries'] || {})[s.id])
-          err = nail_supplied(group, s, s.expected['size'], s.expected['length'])
-          return err if err
-        end
         nil
       end
 
@@ -441,9 +412,6 @@ module DMACC
         p['last_inspection'] = nil
         p['flags'] = []
         set_params(group, p)
-        Yard.change do |y|
-          pulled.each { |pc| y['offcuts'] << { 'id' => YardLogic.new_id(y, 'O'), 'size' => pc['size'], 'length' => pc['length'].to_f } }
-        end
         rebuild(group)
       end
 
@@ -493,17 +461,9 @@ module DMACC
         p = params_of(group)
         why = gate_reason(p, slot)
         return why if why
-        kerf = (Project.settings['kerf'] || YardLogic::KERF).to_f
         count.times do
-          pc = err = nil
-          Yard.change { |y| y['hand'] = nil; pc, err = YardLogic.supply(y, size, len, kerf) }
+          err = install_piece(group, slot.id, Stock.piece(size, len))
           return err if err
-          err = install_piece(group, slot.id, pc)
-          if err
-            Yard.change { |y| y['hand'] = nil } # piece stays on the cart
-            return err
-          end
-          Yard.change { |y| YardLogic.install(y, pc['id']) }
         end
         nil
       end
@@ -528,7 +488,8 @@ module DMACC
       end
 
       # Framing order on the job: levels bottom up; on each level the exterior walls
-      # clockwise from the front door wall (the level's first wall, W-101), then the interiors.
+      # counterclockwise from the front door wall (the level's first wall, W-101) - the
+      # same way they're drawn - then the interiors.
       def framing_order
         levels = all_walls.map { |w| params_of(w)['level'] }.uniq
         elev = ->(lv) { (Project.level(lv) || {})['elev'].to_f }
@@ -547,8 +508,8 @@ module DMACC
             ang = ->(w) { m = mid.call(w); Math.atan2(m[1] - cy, m[0] - cx) }
             front = ext.min_by { |w| params_of(w)['id'].to_s }
             a0 = ang.call(front)
-            # clockwise = angle going down from the front wall
-            ordered = ext.sort_by { |w| [((a0 - ang.call(w)) % (2 * Math::PI)).round(6), params_of(w)['id'].to_s] }
+            # counterclockwise = angle going up from the front wall
+            ordered = ext.sort_by { |w| [((ang.call(w) - a0) % (2 * Math::PI)).round(6), params_of(w)['id'].to_s] }
           end
           ordered + int.sort_by { |w| params_of(w)['id'].to_s }
         end
@@ -651,10 +612,8 @@ module DMACC
         ws, shapes, joints = dtp_context(level)
         seq = dtp_seq.map(&:dup)
         spans, bad = Joints.replay(shapes, joints, seq)
-        kerf = (Project.settings['kerf'] || YardLogic::KERF).to_f
-        # records that no longer fit: their boards go back
+        # records that no longer fit come off
         unless bad.empty?
-          Yard.change { |y| bad.each { |i| (seq[i]['pieces'] || []).each { |pc| YardLogic.return_piece(y, pc) } }; y['hand'] = nil }
           seq = seq.each_with_index.reject { |_r, i| bad.include?(i) }.map(&:first)
           spans, = Joints.replay(shapes, joints, seq)
         end
@@ -668,7 +627,6 @@ module DMACC
               last = len - rec['cuts'][0..-2].sum
               rec['cuts'] = last.positive? && last <= Framing::STOCK_MAX ? rec['cuts'][0..-2] + [last] : nil
             end
-            Yard.change { |y| (rec['pieces'] || []).each { |pc| YardLogic.return_piece(y, pc) }; y['hand'] = nil }
             pcs, = supply_cuts(wp, rec['cuts'], len)
             rec['pieces'] = pcs
             rec['len'] = len
@@ -776,24 +734,7 @@ module DMACC
 
       # Pieces of stock for a double plate run (cuts = piece lengths from the arrow-end side).
       def supply_cuts(p, cuts, len)
-        kerf = (Project.settings['kerf'] || YardLogic::KERF).to_f
-        pieces = []
-        err = nil
-        Yard.change do |y|
-          y['hand'] = nil
-          if cuts && cuts.size > 1
-            cuts.each do |c|
-              pc, err = YardLogic.supply(y, p['stud'], c.to_f, kerf)
-              break if err
-              YardLogic.install(y, pc['id'])
-              pieces << pc
-            end
-          else
-            pieces, err = YardLogic.pull_for(y, p['stud'], len, kerf)
-            pieces.each { |pc| YardLogic.install(y, pc['id']) } unless err
-          end
-        end
-        [pieces.map { |pc| { 'id' => pc['id'], 'size' => pc['size'], 'length' => pc['length'] } }, err]
+        [cuts && cuts.size > 1 ? cuts.map { |c| Stock.piece(p['stud'], c.to_f) } : Stock.run(p['stud'], len), nil]
       end
 
       # Set the double plate piece under local x. Runs over 16' need cuts (piece lengths). Returns error or nil.
@@ -835,7 +776,6 @@ module DMACC
         seq = dtp_seq
         idx = hit.map { |sp| sp['i'] }
         recs = idx.map { |i| seq[i] }
-        Yard.change { |y| recs.each { |r| (r['pieces'] || []).each { |pc| YardLogic.return_piece(y, pc) } }; y['hand'] = nil }
         Project.update { |d| d['dtp_seq'] = seq.each_with_index.reject { |_r, i| idx.include?(i) }.map(&:first) }
         recompute_dtps(p['level'])
         recs.first.merge('n' => hit.first['n'])
@@ -866,56 +806,6 @@ module DMACC
       end
 
       # ---------- student layout marks ----------
-
-      # Pencil marks: where the student pulled the tape to, on the plate.
-      def add_pencil(group, x)
-        p = params_of(group)
-        x = (x.to_f * 16).round / 16.0
-        return [nil, 'That is off the end of the plate.'] if x <= 0 || x >= p['length'].to_f
-        marks = (p['pencil'] || []).map(&:to_f)
-        return ["There's already a pencil mark at #{Framing.fmt_len(x)}.", nil] if marks.any? { |m| (m - x).abs < 1e-6 }
-        p['pencil'] = (marks + [x]).sort
-        set_params(group, p)
-        rebuild(group)
-        ["Pencil mark at #{Framing.fmt_len(x)}.", nil]
-      end
-
-      def remove_pencil(group, x)
-        p = params_of(group)
-        p['pencil'] = (p['pencil'] || []).map(&:to_f).reject { |m| (m - x).abs < 1e-6 }
-        set_params(group, p)
-        rebuild(group)
-      end
-
-      # Add (or remove, if one is already there) a common-stud layout mark.
-      # Returns [message, error]
-      def toggle_mark(group, x)
-        p = params_of(group)
-        marks = (p['marks'] || []).map(&:to_f)
-        hit = marks.find { |m| (m - x).abs <= 1.0 }
-        if hit
-          ms = Framing.mark_slot(p, hit, [])
-          if Inspector.complete?((p['entries'] || {})[ms.id])
-            return [nil, 'There is a stud nailed on that mark - pull it with the Demo tool first.']
-          end
-          p['marks'] = marks - [hit]
-          set_params(group, p)
-          rebuild(group)
-          return ["Removed the mark at #{Framing.fmt_len(hit)}.", nil]
-        end
-        len = p['length'].to_f
-        return [nil, 'That is past the end of the plate.'] if x < 0 || x > len - Framing::T + 0.01
-        zone = Framing.opening_zones(p).find { |a, b, _| x + Framing::T > a + 0.01 && x < b - 0.01 }
-        return [nil, "That's inside #{zone[2]} - the opening unit has its own studs and cripples."] if zone
-        if x < Framing::T || x > len - 2 * Framing::T
-          return [nil, 'End studs are already part of the plate layout.']
-        end
-        xs = Framing.snap_mark(p, x)
-        p['marks'] = (marks + [xs]).sort
-        set_params(group, p)
-        rebuild(group)
-        ["Marked a stud at #{Framing.fmt_len(xs)}.", nil]
-      end
 
       # A slot's stored entry is now out of date: clear its red flag and its
       # line in the last inspection (like editing a field on a form).
@@ -1036,6 +926,25 @@ module DMACC
 
       # ---------- rebuilding ----------
 
+      # What rests on / is nailed to this piece (and what rests on those): the
+      # pieces that have to come out before it can. The double top plate is separate.
+      def resting_on(p, slot)
+        plates = %w[BP TP:1]
+        ws = work_slots(p)
+        e = p['entries'] || {}
+        on = ->(s) { Inspector.complete?(e[s.id]) && s.id != 'TP:2' }
+        return ws.select { |s| on.call(s) && s.id != slot.id && !plates.include?(s.id) } if plates.include?(slot.id)
+        return [] unless slot.opening
+        same = ws.select { |s| s.opening == slot.opening && on.call(s) }
+        blocks = same.select { |s| s.label.include?('header block') }
+        case slot.expected['role']
+        when 'King Stud' then same.select { |s| ['Jack Stud', 'Header', 'Rough Sill'].include?(s.expected['role']) } + blocks
+        when 'Jack Stud' then same.select { |s| ['Header', 'Rough Sill'].include?(s.expected['role']) } + blocks
+        when 'Header' then blocks
+        else []
+        end
+      end
+
       # Hold redraws while a batch of pieces goes in; each wall redraws once at the end.
       def deferring_rebuilds
         return yield if @deferred # already inside a batch
@@ -1112,12 +1021,6 @@ module DMACC
           line.call([cx, 0, z], [cx, d, z])
           t = ents.add_text("#{o['mark']} CL", Geom::Point3d.new(cx, 0, z))
           t.layer = tg if t.respond_to?(:layer=)
-        end
-        (params['pencil'] || []).each do |m|
-          x = m.to_f
-          line.call([x, 0, z], [x, d * 0.6, z])                 # pencil tick
-          line.call([x - 0.4, 0, z], [x, 0.9, z])               # little V pointing at it
-          line.call([x + 0.4, 0, z], [x, 0.9, z])
         end
         (params['marks'] || []).each do |m|
           x = m.to_f

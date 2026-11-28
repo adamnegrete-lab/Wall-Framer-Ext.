@@ -49,7 +49,6 @@ Project.update do |d|
   d['wall_types'] << { 'name' => 'EXT 2x6 24', 'stud' => '2x6', 'spacing' => 24.0, 'height' => 97.125, 'top_plates' => 2,
                        'function' => 'Exterior', 'bearing' => true }
   d['levels'] << { 'name' => 'Level 2', 'elev' => 109.0 } if PLAN[:upper]
-  d['settings']['rfi_delay_min'] = 1
 end
 sfpa = '/home/claude/sfpa/WallFramer_SFPA_headers.json'
 Project.import_sfpa(File.exist?(sfpa) ? sfpa : File.join(__dir__, 'fixtures', 'sfpa_fake.json'))
@@ -119,14 +118,8 @@ class Student
       [Framing.fmt_len(Framing.layout_dist(q, o[2])), o[0], o[1]]
     when /\) - Lay out an opening/, /\) - Edit /
       o = @cur
-      hdr = case o[6] when :rfi then Framing::HDR_RFI when :flat then Framing::HDR_FLAT else o[6] end
+      hdr = o[6] == :flat ? Framing::HDR_FLAT : o[6]
       plies = o[7] ? o[7].to_s : '--'
-      if title.include?(') - Edit ') # updating after the RFI answer
-        ans = Project.data['rfis'].find { |r| r['mark'] == o[0] }['answer']
-        m = ans.match(/\((\d)\) (2x\d+)/)
-        hdr = m ? m[2] : Framing::HDR_FLAT
-        plies = m ? m[1] : '--'
-      end
       base = o[1] == 'Window' ? [o[3], o[4], o[5]] : [o[3], o[4]]
       base.map { |v| Framing.fmt_len(v.to_f) } + [hdr, plies]
     when /\AEdit /
@@ -261,7 +254,7 @@ def frame_wall(g)
       end
       fd.fire('ready')
       rows = S.ops.map do |o|
-        hdr = case o[6] when :rfi then Framing::HDR_RFI when :flat then Framing::HDR_FLAT else o[6] end
+        hdr = o[6] == :flat ? Framing::HDR_FLAT : o[6]
         { 'mark' => o[0], 'type' => o[1], 'x_text' => Framing.fmt_len(Framing.layout_dist(p, o[2])),
           'width_text' => Framing.fmt_len(o[3].to_f), 'height_text' => Framing.fmt_len(o[4].to_f),
           'sill_text' => o[1] == 'Window' ? Framing.fmt_len(o[5].to_f) : '', 'header' => hdr, 'plies' => o[7] ? o[7].to_s : '--' }
@@ -272,11 +265,8 @@ def frame_wall(g)
         finding("#{id}: Openings form refused: #{errs.first(2)}")
         return false
       end
-      rfis = S.ops.select { |o| o[6] == :rfi }
       S.ops = []
-      # rows for the other openings go in while the RFI is out (any order)
       CutStudent.fill(g)
-      rfis.each { |o| rfi_flow(g, o) }
     else
       CutStudent.fill(g, order: [:reverse, :forward].sample)
       p = Builder.params_of(g)
@@ -289,45 +279,6 @@ def frame_wall(g)
   end
   finding("#{id}: didn't finish (stage #{Builder.stage(Builder.params_of(g))})")
   false
-end
-
-# Header not on the plans: RFI form -> wait -> answer -> student updates the opening
-def rfi_flow(g, o)
-  id = Builder.params_of(g)['id']
-  Dialogs.open_rfi(id, o[0]) unless (Builder.params_of(g)['openings'].find { |x| x['mark'] == o[0] } || {})['rfi']
-  d = UI::HtmlDialog.all.last
-  if d.instance_variable_get(:@cbs)&.key?('submit')
-    d.fire('ready')
-    d.fire('submit', { 'question' => "Checked the plans and general notes - no header called out for #{o[0]}. What size?" })
-  else
-    finding("#{id}: RFI form didn't open for #{o[0]}")
-    return
-  end
-  op = Builder.params_of(g)['openings'].find { |x| x['mark'] == o[0] }
-  finding("#{id}: #{o[0]} has no RFI number after submitting") unless op && op['rfi']
-  Project.update { |dd| dd['rfis'].each { |r| r['at'] -= 120 unless r['answer'] } }
-  done = Project.release_rfis
-  Dialogs.notify_rfis(done)
-  r = done.find { |x| x['mark'] == o[0] }
-  unless r
-    finding("#{id}: RFI for #{o[0]} didn't answer itself (#{Project.rfi_stuck_reason(Project.data['rfis'].find { |x| x['mark'] == o[0] })})")
-    return
-  end
-  puts "   RFI #{o[0]}: #{r['answer']}"
-  S.instance_variable_set(:@cur, o)
-  ws = Builder.work_slots(Builder.params_of(g))
-  k = ws.find { |x| x.opening == o[0] }
-  x0, z0, x1, z1 = Framing.slot_box(k)
-  click(g, (x0 + x1) / 2, (z0 + z1) / 2) # click the opening -> read the answer -> the Openings form
-  fd = UI::HtmlDialog.all.reverse.find { |dd| dd.instance_variable_get(:@cbs)&.key?('save_openings') }
-  fd.fire('ready')
-  rows = fd.last('load')['openings']
-  m = r['answer'].match(/\((\d)\) (2x\d+)/)
-  rows = rows.map { |row| row['mark'] == o[0] ? row.merge('header' => m ? m[2] : Framing::HDR_FLAT, 'plies' => m ? m[1] : '--') : row }
-  fd.fire('save_openings', { 'pos_mode' => 'center', 'openings' => rows })
-  finding("#{id}: updating #{o[0]} from the RFI answer was refused: #{fd.last('openingErrors')}") unless (fd.last('openingErrors') || []).empty?
-  op = Builder.params_of(g)['openings'].find { |x| x['mark'] == o[0] }
-  finding("#{id}: #{o[0]} still on hold after reading the RFI answer and updating") if op['header'] == Framing::RFI
 end
 
 # ---------------- double top plates ----------------
@@ -427,8 +378,6 @@ html = DMACC::WallFramer.report_html(res, key.merge('model' => 'self', 'created'
 pct = res['areas'] ? res['areas'].map { |a| a['pct'] || a['score'] } : res.keys
 puts "   self-grade: #{res.reject { |k, _| %w[notes walls].include?(k) }.to_a.first(6)}"
 finding('grade report failed to build') unless html.include?('Grade Report')
-st = Yard.stats
-puts "   yard: #{st}"
 YD.fire('ready')
 ld = YD.last('load')
 puts "   job notes: #{ld['notes']['items'].size} items, plans: #{ld['notes']['plans'].size} openings"

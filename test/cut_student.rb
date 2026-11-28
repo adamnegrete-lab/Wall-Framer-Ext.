@@ -9,31 +9,7 @@ module CutStudent
   end
 
   def answer(p, r)
-    slots = Builder.work_slots(p)
-    by = slots.to_h { |s| [s.id, s] }
-    first = r['slots'].map { |id| by[id] }.compact.first
-    case r['input']
-    when 'corner'
-      need = (p['corner_need'] || {})[r['key'].split(':').last]
-      [need && need['type'] == 'L' ? 'L' : 'single']
-    when 'oc'
-      sp = p['spacing'].to_f
-      [sp == sp.round ? sp.round.to_s : sp.to_s]
-    when 'backing' then ['ladder']
-    when 'lens'
-      len = first.expected['length'].to_f
-      pcs = []
-      while len > Framing::STOCK_MAX + 1e-6
-        pcs << Framing::STOCK_MAX
-        len -= Framing::STOCK_MAX
-      end
-      pcs << len
-      [pcs.map { |l| Framing.fmt_len(l) }.join(', '), first.expected['size']]
-    else
-      first ||= slots.find { |s| s.phase == 'commons' && s.kind == :vertical } if r['key'] == 'common'
-      return nil unless first
-      [Framing.fmt_len(first.expected['length']), first.expected['size']]
-    end
+    CutList.answer(p, r)
   end
 
   # Fill every row (reverse order by default - "any order"). Returns the dialog.

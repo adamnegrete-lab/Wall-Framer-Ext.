@@ -10,8 +10,8 @@ module DMACC
     module Updater
       PREF = 'DMACC_WallFramer'.freeze
       DEFAULT_URL = 'https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/version.json'.freeze
-      FILES = %w[version framing corners joints inspector takeoff answer_key yard_logic shop project builder cutlist
-                 yard_view views tools corner_tool install_tool guided_tool demo_tool dialogs updater main].freeze
+      FILES = %w[version framing corners joints inspector takeoff answer_key stock shop project builder cutlist
+                 views tools corner_tool guided_tool demo_tool dialogs instructor updater main].freeze
 
       class << self
         # ---------- reload ----------

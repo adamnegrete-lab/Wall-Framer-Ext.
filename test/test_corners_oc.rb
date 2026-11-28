@@ -58,7 +58,7 @@ chk(ins['issues'].size == 1 && ins['issues'][0]['message'] == 'This corner needs
 puts '   why: ' + ins['issues'][0]['hint'].to_s
 # redo with right corners but wrong O.C.
 Builder.reset_commons(s_w)
-chk(Builder.stage(Builder.params_of(s_w)) == 'commons' && Yard.data['offcuts'].size >= 12, 'redo pulls the studs back (to the offcut pile)')
+chk(Builder.stage(Builder.params_of(s_w)) == 'commons', 'redo pulls the studs back out')
 chk((Builder.params_of(s_w)['cutlist'] || {}).keys.none? { |k| k.start_with?('corner:') || k == 'oc' }, 'redo empties the stud rows')
 studs.(s_w, 'L', 'L', '24')
 Dialogs.inspect_group(s_w); ins = Builder.params_of(s_w)['last_inspection']; ins['issues'].reject! { |i| i['slot_id'] == 'TP:2' }

@@ -14,6 +14,7 @@ module DMACC
     class DrawWallTool
       SNAP_DEG = 3.0       # snap to an axis / previous wall within this angle
       CLOSE_TOL = 0.5      # end within 1/2" of the chain start = close the loop
+      MAX_LEN = 480.0      # 40' - longest wall for this course
 
       def initialize(level_name, type_name)
         @level = level_name
@@ -47,6 +48,7 @@ module DMACC
         @prev = nil        # last wall group placed in this chain
         @first = nil       # first wall group of this chain
         @first_pt = nil    # where the chain started (for closing the loop)
+        @chain = []        # walls placed in this chain, in order
         @lock = nil        # locked direction (Shift)
         @snap = nil        # :x, :y, :prev, :perp, :point, or nil
       end
@@ -126,6 +128,7 @@ module DMACC
           next unless p['level'] == @level
           inv = Builder.home(w).inverse
           lp = pt.transform(inv)
+          next if lp.x.nan? || lp.y.nan?
           len = p['length'].to_f
           d = Framing.depth(p)
           next if lp.x < -1 || lp.x > len + 1
@@ -295,6 +298,12 @@ module DMACC
       def finish_wall(pt, view)
         closing = @first && pt.distance(@first_pt) <= CLOSE_TOL
         pt = @first_pt if closing
+        if @start.distance(pt) > MAX_LEN + 0.01
+          UI.beep
+          Sketchup.status_text = "Walls are limited to 40' for this course - that one is #{Framing.fmt_len(@start.distance(pt).to_f)}. " \
+                                 'Break it into two walls at a corner or partition.'
+          return
+        end
         model = Sketchup.active_model
         model.start_operation('Place Wall', true)
         g = @flip ? Builder.create_wall(pt, @start, @level, @type) : Builder.create_wall(@start, pt, @level, @type)
@@ -305,8 +314,14 @@ module DMACC
           return
         end
         @placed_any = true
+        @chain << g
         if closing
+          wrong = wrong_way?
           reset_chain
+          if wrong
+            undo_loop(wrong, view)
+            return
+          end
           Sketchup.status_text = 'Loop closed. Draw more walls, or press Esc to set the corners.'
         else
           @first ||= g
@@ -316,6 +331,35 @@ module DMACC
           @lock = nil
           update_ui
         end
+        view.invalidate
+      end
+
+      # Outside walls go around counterclockwise (seen from above), so the framing
+      # lands inside the plan lines. A loop drawn the other way comes back out.
+      # Returns the loop's walls if it framed outside the lines, else nil.
+      def wrong_way?
+        walls = @chain.reject(&:deleted?)
+        return nil if walls.size < 3
+        # shoelace over each wall's own direction (Tab-flipped walls count the way they frame)
+        area = walls.sum do |w|
+          a, b = Builder.endpoints(w)
+          a.x.to_f * b.y.to_f - b.x.to_f * a.y.to_f
+        end / 2.0
+        inside = area.positive? # framing builds to the left of the drawn direction
+        inside ? nil : walls
+      end
+
+      def undo_loop(walls, view)
+        ids = walls.map { |w| Builder.params_of(w)['id'] }
+        model = Sketchup.active_model
+        model.start_operation('Remove Clockwise Walls', true)
+        walls.each { |w| w.locked = false if w.respond_to?(:locked=); w.erase! }
+        Builder.forget_dtp(ids)
+        Project.give_back_wall_ids(@level, ids)
+        model.commit_operation
+        UI.beep
+        Sketchup.status_text = "That loop went clockwise, so its framing landed outside the plan lines - #{ids.join(', ')} came back out. " \
+                               'Draw the outside walls counterclockwise, starting at the front door wall.'
         view.invalidate
       end
 

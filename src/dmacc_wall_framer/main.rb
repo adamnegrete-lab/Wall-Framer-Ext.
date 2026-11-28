@@ -1,7 +1,7 @@
 require 'sketchup.rb'
 require 'json'
 
-%w[version updater views framing corners joints inspector takeoff answer_key yard_logic shop project builder cutlist yard_view tools corner_tool install_tool guided_tool demo_tool dialogs].each do |f|
+%w[version updater views framing corners joints inspector takeoff answer_key stock shop project builder cutlist tools corner_tool guided_tool demo_tool dialogs instructor].each do |f|
   Sketchup.require(File.join(__dir__, f))
 end
 
@@ -156,9 +156,7 @@ module DMACC
           <h2>Inspector catches</h2>#{catches_html}
           <h2>Differences from the key</h2>#{notes}
           <h2>Double top plate interlock</h2>#{interlock_html}
-          <h2>RFIs</h2>#{rfi_html}
           <h2>Student field notes</h2>#{field_notes_html}
-          <h2>Material use</h2>#{yard_html}
           <h2>Inspection history (last 40)</h2><ul>#{log.empty? ? '<li>None</li>' : log}</ul>
           <h2>Takeoff history</h2><ul>#{tk.empty? ? '<li>None</li>' : tk}</ul>
           <p style="color:#444">Framing members are scored against the correct framing for the walls and openings as the student modeled them. Wall and opening errors are scored separately above.</p>
@@ -195,23 +193,6 @@ module DMACC
         '<ul>' + ns.map { |n| "<li>#{h(n['text'])}</li>" }.join + '</ul>'
       end
 
-      def rfi_html
-        rs = Project.data['rfis'] || []
-        return '<p>None submitted.</p>' if rs.empty?
-        '<ul>' + rs.map do |r|
-          at = Time.at(r['at'].to_i).strftime('%Y-%m-%d %H:%M')
-          "<li>##{r['n']} #{h(r['wall'])} #{h(r['mark'])} (#{at}): #{h(r['question'])}<br>" \
-            "Answer: #{r['answer'] ? h(r['answer']) : 'pending'}</li>"
-        end.join + '</ul>'
-      end
-
-      def yard_html
-        return '<p>Yard not used.</p>' unless Project.data['yard']
-        st = Yard.stats
-        "<p>Boards pulled: #{st['boards_pulled']} (#{st['pulled_lf']} LF). Nailed into walls: #{st['installed_lf']} LF. " \
-          "Offcuts: #{st['offcut_lf']} LF. Scrap and kerf: #{st['scrap_lf']} LF. Waste: #{st['waste_pct']}% of lumber pulled.</p>"
-      end
-
       def show_report(html)
         dlg = UI::HtmlDialog.new(dialog_title: 'Grade Report', width: 860, height: 760,
                                  preferences_key: 'dmacc_wf_report', style: UI::HtmlDialog::STYLE_DIALOG)
@@ -239,8 +220,9 @@ module DMACC
         if (w = Builder.selected_walls.first)
           Dialogs.focus_wall(Builder.params_of(w)['id'])
         end
+        Stock.clear_old_yard
         Dialogs.activate_tool
-        Dialogs.tool.set_mode('nail') if Dialogs.tool.respond_to?(:set_mode)
+        Dialogs.tool.set_mode('guided')
       end
 
       def corners_tool
@@ -283,6 +265,17 @@ module DMACC
         Dialogs.open_shop(g)
       end
 
+      # Lists toolbar: the Frame Wall form for the wall you're on.
+      def cut_list_tool
+        g = Dialogs.focus_group or return UI.messagebox('Place some walls first.')
+        Dialogs.open_frame(g)
+      end
+
+      def header_table_tool
+        g = Dialogs.focus_group or return UI.messagebox('Place some walls first - the Header table opens in the Frame Wall form.')
+        Dialogs.open_frame(g, header_table: true)
+      end
+
     end
 
     # ---------- menus ----------
@@ -292,11 +285,16 @@ module DMACC
       menu.add_item('Project Setup...') { Dialogs.open_setup }
       menu.add_item('Framing Panel') { Dialogs.open_yard }
       menu.add_item('Demo Tool (pull pieces)') { demo_tool }
-      menu.add_item('Openings + Member List (selected wall)...') { frame_wall }
+      menu.add_item('Header Table') { header_table_tool }
       menu.add_item('Change Wall Type of Selected...') { change_wall_type }
       menu.add_item('Export Auto Cut List (CSV)...') { export_cut_list }
       menu.add_separator
       inst = menu.add_submenu('Instructor')
+      inst.add_item('Draw Test House (empty model)') { Instructor.draw_test_house }
+      inst.add_item("Fill This Wall's Cut List (right answers)") { Instructor.fill_wall }
+      inst.add_item('Frame Every Wall on This Floor') { Instructor.frame_floor }
+      inst.add_item('Reset This Wall') { Instructor.reset_wall }
+      inst.add_separator
       inst.add_item('Export Answer Key...') { export_key }
       inst.add_item('Grade This Model Against Key...') { grade_against_key }
       inst.add_item('Show Attempt Log') { show_log }
@@ -311,43 +309,13 @@ module DMACC
       file_loaded(__FILE__)
     end
 
-    # ---------- RFIs answer themselves (checked once a minute; no timer shown) ----------
-    unless file_loaded?('dmacc_wf_rfi_timer')
-      UI.start_timer(60, true) do
-        begin
-          if Builder.all_walls.any? && (Project.data['rfis'] || []).any? { |r| !r['answer'] }
-            m = Sketchup.active_model
-            m.start_operation('RFI Answered', true, false, true)
-            done = Project.release_rfis
-            m.commit_operation
-            Dialogs.notify_rfis(done)
-          end
-        rescue StandardError => e
-          puts "Wall Framer RFI check: #{e.message}"
-        end
-      end
-      file_loaded('dmacc_wf_rfi_timer')
-    end
-
-
-    # Right-click menu (SketchUp's own). Framing items first when the Frame/Demo tool is up.
+    # Right-click menu (SketchUp's own): a Wall Framer submenu on selected walls.
     def self.context_menu(cm, submenu: true)
-      # If SketchUp shows its own menu while framing, the framing items go on top of it too.
-      t = [Dialogs.tool, @demo].compact.find { |x| x.respond_to?(:active?) && x.active? }
-      if t
-        before = cm.respond_to?(:add_separator)
-        begin
-          t.menu_items(cm)
-        rescue StandardError => e
-          puts "Wall Framer menu: #{e.message}"
-        end
-        cm.add_separator if before
-      end
       return unless submenu && Builder.selected_walls.size >= 1
       sub = cm.add_submenu('Wall Framer')
       if Builder.selected_walls.size == 1
         sub.add_item('Frame This Wall') { frame_tool }
-        sub.add_item('Openings + Member List...') { frame_wall }
+        sub.add_item('Frame Wall Form...') { Dialogs.open_frame(Builder.selected_walls.first) }
         sub.add_item('Redo Corners + Stud Layout') do
           w = Builder.selected_walls.first
           Dialogs.operation('Redo Stud Layout') { Builder.reset_commons(w) }
@@ -376,27 +344,12 @@ module DMACC
       file_loaded('dmacc_wf_ctx_v2')
     end
 
-    DEMO_BUTTON = ['Demo - click a piece to pull it (Esc when done)', 'demo', proc { WallFramer.demo_tool }].freeze unless defined?(DEMO_BUTTON)
-
-    # ---------- the toolbar: the job-site sequence, left to right ----------
-    # (its own guard, so "Reload After Update" can add it without a restart)
-    unless file_loaded?('dmacc_wf_toolbar_v3')
-      %w[Wall\ Framer Wall\ Framer\ Tools].each do |old|
-        UI.toolbar(old).hide if UI.respond_to?(:toolbar_names) && UI.toolbar_names.include?(old)
-      end
-      tb = UI::Toolbar.new('Wall Framer Steps')
+    # ---------- toolbars: Steps (the tools, in job order) + Lists (the framing data) ----------
+    # (their own guard, so "Reload After Update" can add them without a restart)
+    def self.make_toolbar(name, items)
+      tb = UI::Toolbar.new(name)
       icons = File.join(__dir__, 'icons')
-      [['Project Setup - levels and wall types', 'setup', proc { Dialogs.open_setup }],
-       ['Place Walls (plan view)', 'wall', proc { draw_wall }],
-       ['Corners - which walls run through (plan view)', 'corners', proc { corners_tool }],
-       ['Frame - pick up where you left off (click a wall to switch)', 'frame', proc { frame_tool }],
-       ['Tape Measure (click Frame when done)', 'tape', proc { tape_tool }],
-       DEMO_BUTTON,
-       ['Double Top Plates (top view)', 'dtp', proc { dtp_tool }],
-       ['Request Inspection', 'inspect', proc { inspect_tool }],
-       ['Shop Drawing', 'shop', proc { shop_tool }],
-       ['Takeoff', 'takeoff', proc { Dialogs.open_takeoff }],
-       ['Framing Panel', 'yard', proc { Dialogs.open_yard }]].each do |label, icon, blk|
+      items.each do |label, icon, blk|
         cmd = UI::Command.new(label, &blk)
         cmd.tooltip = label
         cmd.status_bar_text = label
@@ -405,19 +358,31 @@ module DMACC
         tb.add_item(cmd)
       end
       tb.show
-      file_loaded('dmacc_wf_toolbar_v3')
-      file_loaded('dmacc_wf_demo_btn')
+      tb
     end
-    # Already running an older toolbar (Reload After Update): add the Demo button to it.
-    unless file_loaded?('dmacc_wf_demo_btn')
-      label, icon, blk = DEMO_BUTTON
-      cmd = UI::Command.new(label, &blk)
-      cmd.tooltip = label
-      cmd.status_bar_text = label
-      cmd.small_icon = File.join(__dir__, 'icons', "#{icon}_24.png")
-      cmd.large_icon = File.join(__dir__, 'icons', "#{icon}_32.png")
-      UI.toolbar('Wall Framer Steps').add_item(cmd) if UI.respond_to?(:toolbar)
-      file_loaded('dmacc_wf_demo_btn')
+
+    unless file_loaded?('dmacc_wf_toolbars_v4')
+      # retire the one-toolbar layout from before 0.20
+      %w[Wall\ Framer Wall\ Framer\ Tools Wall\ Framer\ Steps].each do |old|
+        UI.toolbar(old).hide if UI.respond_to?(:toolbar_names) && UI.toolbar_names.include?(old)
+      end
+      make_toolbar('Wall Framer - Steps', [
+        ['Place Walls (plan view) - outside walls counterclockwise', 'wall', proc { draw_wall }],
+        ['Corners - which walls run through (plan view)', 'corners', proc { corners_tool }],
+        ['Frame - click a wall to frame it on the table', 'frame', proc { frame_tool }],
+        ['Tape Measure (Continue framing in the form when done)', 'tape', proc { tape_tool }],
+        ['Demo - click a piece to pull it (Esc when done)', 'demo', proc { demo_tool }],
+        ['Double Top Plates (top view)', 'dtp', proc { dtp_tool }],
+        ['Request Inspection (whole floor)', 'inspect', proc { inspect_tool }]
+      ])
+      make_toolbar('Wall Framer - Lists', [
+        ['Cut List - the Frame Wall form for this wall', 'cutlist', proc { cut_list_tool }],
+        ['Framing Panel - this wall, job notes, building', 'yard', proc { Dialogs.open_yard }],
+        ['Header Table', 'header', proc { header_table_tool }],
+        ['Shop Drawing', 'shop', proc { shop_tool }],
+        ['Takeoff', 'takeoff', proc { Dialogs.open_takeoff }]
+      ])
+      file_loaded('dmacc_wf_toolbars_v4')
     end
   end
 end

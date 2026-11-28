@@ -48,10 +48,10 @@ module DMACC
 
         # ---------------- framing form ----------------
 
-        def open_frame(wall, center: nil, row: nil)
+        def open_frame(wall, row: nil, header_table: false)
           @frame_wall = Builder.params_of(wall)['id']
-          @prefill = center
           @goto_row = row
+          @show_hdr = header_table
           if @frame&.visible?
             send_frame
             @frame.bring_to_front
@@ -66,8 +66,7 @@ module DMACC
           end
           d.add_action_callback('ready') { |_c, _a| send_frame }
           d.add_action_callback('save_openings') { |_c, a| save_openings(JSON.parse(a)) }
-          d.add_action_callback('save_entries') { |_c, a| save_entries(JSON.parse(a)['entries']) }
-          d.add_action_callback('inspect') { |_c, _a| Project.settings['guided'] ? inspect_focus_level : request_inspection(nil) }
+          d.add_action_callback('inspect') { |_c, _a| inspect_focus_level }
           d.add_action_callback('frame_next') { |_c, _a| frame_next }
           d.add_action_callback('continue') do |_c, _a|
             g = frame_group or next
@@ -76,7 +75,6 @@ module DMACC
             Views.table(g) if Builder.on_table?(g) # back to looking straight down on the table
             Sketchup.status_text = "Back to framing #{Builder.params_of(g)['id']} - click a piece or type in the cut list."
           end
-          d.add_action_callback('go_frame') { |_c, _a| open_yard; Sketchup.active_model.select_tool(InstallTool.new) }
           d.add_action_callback('shop') { |_c, _a| (g = frame_group) && open_shop(g) }
           d.add_action_callback('zoom') { |_c, a| zoom(JSON.parse(a)['slot']) }
           d.add_action_callback('set_row') { |_c, a| set_row(JSON.parse(a)) }
@@ -149,62 +147,27 @@ module DMACC
           g
         end
 
-        def group_name(slot)
-          if slot.opening then "Opening #{slot.opening}"
-          elsif slot.kind == :horizontal then 'Plates'
-          else 'Studs on layout'
-          end
-        end
-
-        STEP_NAMES = ['1. Plates', '2. Lay out openings', '3. Frame openings (kings, jacks, header, sill)', '4. Lay out + nail studs (and tee backing)',
+        STEP_NAMES = ['1. Plates', '2. Openings', '3. Frame openings (kings, jacks, header, sill)', '4. Corners + studs (and tee backing)',
                       '6. Double top plate', '5. Cripples + header blocks (on your layout)'].freeze
 
         def frame_state(group)
           p = Builder.params_of(group)
-          s = Project.settings
-          table = Project.header_table
-          slots = Builder.work_slots(p)
-          # Group display order: plates, studs on layout, then each opening
-          order = slots.sort_by do |sl|
-            g = group_name(sl)
-            [g == 'Plates' ? 0 : g == 'Studs on layout' ? 1 : 2, sl.opening.to_s, sl.kind == :horizontal ? 0 : 1, sl.x, sl.z]
-          end
-          entries = p['entries'] || {}
           {
             'wall' => { 'id' => p['id'], 'type' => p['type'], 'level' => p['level'], 'stud' => p['stud'],
                         'spacing' => p['spacing'], 'length_text' => len_text(p['length']),
                         'height_text' => len_text(p['height']) },
             'pos_mode' => 'center',
-            'guided' => !!s['guided'],
-            'hdr_flat' => Framing::HDR_FLAT, 'hdr_rfi' => Framing::HDR_RFI,
-            'prefill' => @prefill && { 'x_text' => len_text(Framing.layout_dist(p, @prefill)) },
+            'hdr_flat' => Framing::HDR_FLAT,
             'openings' => p['openings'].map do |o|
-              ans = o['rfi_new'] && (Project.data['rfis'] || []).find { |r| r['n'] == o['rfi_new'] }
               { 'mark' => o['mark'], 'type' => o['type'],
                 'x_text' => len_text(Framing.layout_dist(p, o['x'].to_f + o['width'].to_f / 2.0)),
                 'width_text' => len_text(o['width']), 'height_text' => len_text(Framing.ro_height(o)),
                 'sill_text' => o['type'] == 'Window' ? len_text(o['height']) : '',
-                'header' => ans ? Framing::HDR_PICK : Framing.header_choice(o['header']),
-                'plies' => ans ? nil : o['plies'],
-                'rfi_note' => ans && "RFI ##{ans['n']} answered: #{ans['answer']} - pick the header and plies from the answer, then save." }
+                'header' => Framing.header_choice(o['header']),
+                'plies' => o['plies'] }
             end,
-            'slots' => order.map do |sl|
-              e = entries[sl.id]
-              installed = if Inspector.complete?(e)
-                            pcs = e['pieces'] || [e]
-                            pcs.map { |pc| "#{pc['size']} x #{len_text(pc['length'])}" }.join(' + ')
-                          else
-                            ''
-                          end
-              { 'id' => sl.id, 'label' => sl.label, 'group' => group_name(sl), 'installed' => installed,
-                'flagged' => (p['flags'] || []).include?(sl.id),
-                'entry' => e && { 'role' => e['role'], 'size' => e['size'],
-                                  'length_text' => e['length'].to_f > 0 ? len_text(e['length']) : '' } }
-            end,
-            'roles' => Framing::ROLES, 'sizes' => Framing::SIZES,
             'header_choices' => Framing.header_choices,
             'inspection' => p['last_inspection'],
-            'allow_apply' => s['feedback'] == 'fix',
             'cutlist' => CutList.rows(p),
             'corner_opts' => CutList::CORNERS, 'backing_opts' => CutList::BACKING, 'oc_opts' => CutList::OCS,
             'stud_sizes' => %w[2x4 2x6],
@@ -213,15 +176,16 @@ module DMACC
             'ready_to_build' => ready_to_build?(p),
             'header_tables' => Project.sfpa_tables,
             'start_side' => Framing.from_end?(p) ? 'right' : 'left',
-            'goto_row' => @goto_row
+            'goto_row' => @goto_row,
+            'show_header_table' => @show_hdr
           }
         end
 
         def send_frame
           g = frame_group or return
           js(@frame, 'load', frame_state(g))
-          @prefill = nil
           @goto_row = nil
+          @show_hdr = nil
         end
 
         def save_openings(data)
@@ -242,32 +206,20 @@ module DMACC
               x = Framing.from_end?(p) ? len - near - w : near
             end
             hdr = Framing.header_from_choice(o['header'])
-            errs << "#{name}: pick the header from the plans or general notes - if it isn't called out, submit an RFI." unless hdr
+            errs << "#{name}: pick the header from the plans or general notes - if it isn't called out, use the Header table." unless hdr
             plies = o['plies'].to_i
             errs << "#{name}: pick the header plies from the plans (the (2) in \"(2) 2x10\")." if Framing::SIZES.include?(hdr) && plies.zero?
             mark = o['mark'].to_s.strip.upcase
             op = { 'mark' => mark, 'type' => o['type'], 'x' => x, 'width' => w,
                    'header' => hdr }.merge(h && head ? Framing.opening_from_ro(o['type'], h, head) : {})
             op['plies'] = plies if Framing::SIZES.include?(hdr)
-            # an RFI still out (or answered but not updated yet) stays with the opening
             old = p['openings'].find { |q| q['mark'] == mark }
-            %w[jacks rfi rfi_new].each { |k| op[k] = old[k] if old && old['header'] == hdr && hdr == Framing::RFI && old.key?(k) }
             op['jacks'] = old['jacks'] if old && old['jacks'] && old['header'] == hdr
             op
           end
           # marks must be unique across the whole model (they match the schedules)
           others = Builder.all_walls.reject { |w| w == g }.flat_map { |w| Builder.params_of(w)['openings'].map { |o| o['mark'] } }
           ops.each { |o| errs << "#{o['mark']} is already used on another wall." if others.include?(o['mark']) }
-          # an opening that's already framed can't move or disappear from here
-          e = p['entries'] || {}
-          framed = Builder.work_slots(p).select { |sl| sl.opening && Inspector.complete?(e[sl.id]) }.map(&:opening).uniq
-          framed = [] if Project.settings['guided'] # the cut list pulls and re-nails them where the opening moved
-          framed.each do |mk|
-            was = p['openings'].find { |o| o['mark'] == mk }
-            now = ops.find { |o| o['mark'] == mk }
-            same = now && %w[type x width height sill header plies].all? { |k| (was[k].is_a?(Numeric) ? (was[k].to_f - now[k].to_f).abs < 1e-3 : was[k] == now[k]) }
-            errs << "#{mk} is already framed - pull its pieces with the Demo tool before changing or removing it." unless same
-          end
           if errs.empty?
             test = p.merge('openings' => ops)
             errs = Framing.validate(test, Project.header_table)
@@ -276,7 +228,6 @@ module DMACC
             js(@frame, 'openingErrors', errs)
             return
           end
-          guided = Project.settings['guided']
           before = Builder.stage(p)
           operation('Edit Openings') do
             p = Builder.params_of(g)
@@ -288,67 +239,13 @@ module DMACC
             Builder.rebuild(g)
           end
           js(@frame, 'openingErrors', [])
-          unsent = ops.find { |op| op['header'] == Framing::RFI && !op['rfi'] }
-          held = ops.select { |op| op['header'] == Framing::RFI }.map { |op| op['mark'] }
-          if guided
-            operation('Cut List') { CutList.apply(g) } # rows already typed for these openings go in
-            Sketchup.status_text = if ops.empty? then "#{p['id']}: no openings - on to the studs."
-                                   elsif held.any? then "#{p['id']}: openings saved. #{held.join(', ')} on hold for an RFI - frame the others."
-                                   else "#{p['id']}: openings saved. Fill in the cut list: kings, jacks, header, sill."
-                                   end
-            @tool.announce(g, before) if @tool.respond_to?(:announce) && Builder.find_wall(p['id'])
-            send_frame
-            js(@frame, 'afterOps', nil)
-          else
-            send_frame
-            js(@frame, 'afterOps', nil)
-          end
+          operation('Cut List') { CutList.apply(g) } # rows already typed for these openings go in
+          Sketchup.status_text = ops.empty? ? "#{p['id']}: no openings - on to the studs." : "#{p['id']}: openings saved. Fill in the cut list: kings, jacks, header, sill."
+          @tool.announce(g, before) if @tool.respond_to?(:announce) && Builder.find_wall(p['id'])
+          send_frame
+          js(@frame, 'afterOps', nil)
           refresh_yard
           Sketchup.active_model.active_view.invalidate
-          open_rfi(p['id'], unsent['mark']) if unsent
-        end
-
-        # Parses and stores entries. Returns parse errors {slot_id => msg}.
-        def store_entries(g, raw)
-          p = Builder.params_of(g)
-          old = p['entries'] || {}
-          errs = {}
-          entries = {}
-          (raw || {}).each do |id, e|
-            len = e['length'].to_s.strip.empty? ? 0.0 : Framing.parse_len(e['length'])
-            if len.nil?
-              errs[id] = "Couldn't read the cut length \"#{e['length']}\". Try 92 5/8 or 7' 8-5/8\"."
-              len = 0.0
-            end
-            entries[id] = { 'role' => e['role'].to_s, 'size' => e['size'].to_s, 'length' => len }
-          end
-          changed = (entries.keys | old.keys).reject { |id| entries[id] == old[id] }
-          p['entries'] = entries
-          p['flags'] = (p['flags'] || []) - changed
-          if p['last_inspection']
-            p['last_inspection']['issues'] = p['last_inspection']['issues'].reject { |i| changed.include?(i['slot_id']) }
-          end
-          Builder.set_params(g, p)
-          errs
-        end
-
-        def save_entries(raw)
-          g = frame_group or return
-          errs = {}
-          operation('Install Framing Members') do
-            errs = store_entries(g, raw)
-            Builder.rebuild(g)
-          end
-          js(@frame, 'entryErrors', errs)
-        end
-
-        def request_inspection(raw)
-          g = frame_group or return
-          operation('Request Inspection') do
-            store_entries(g, raw) if raw
-            inspect_group(g)
-          end
-          send_frame
         end
 
         # Runs an inspection on one wall at the instructor's feedback level,
@@ -397,12 +294,6 @@ module DMACC
 
         def inspect_focus_level
           g = focus_group or return 'Place some walls first.'
-          unless Project.settings['guided'] # advanced mode: one wall at a time, as before
-            operation('Request Inspection') { inspect_group(g) }
-            refresh_yard
-            refresh_frame
-            return Builder.params_of(g)['last_inspection'] && Builder.params_of(g)['last_inspection']['summary']
-          end
           msg = inspect_level(Builder.params_of(g)['level'])
           Sketchup.status_text = msg
           js(@yard, 'setStatus', msg) if @yard&.visible?
@@ -453,69 +344,11 @@ module DMACC
           send_frame if @frame&.visible?
         end
 
-        # ---------------- RFI form ----------------
-
-        def open_rfi(wall_id, mark)
-          g = Builder.find_wall(wall_id) or return
-          p = Builder.params_of(g)
-          o = p['openings'].find { |x| x['mark'] == mark } or return
-          @rfi.close if @rfi&.visible?
-          d = make('Request for Information', 'rfi.html', 760, 560, 'rfi')
-          @rfi = d
-          title = Sketchup.active_model.title.to_s
-          d.add_action_callback('ready') do |_c, _a|
-            js(d, 'load', { 'n' => Project.data['rfis'].size + 1, 'project' => title.empty? ? '(unsaved model)' : title,
-                            'date' => Time.now.strftime('%m/%d/%Y'), 'wall' => "#{wall_id} (#{p['type']})", 'mark' => mark,
-                            'type' => o['type'],
-                            'ro' => "#{len_text(o['width'])} wide x #{len_text(Framing.ro_height(o))} high",
-                            'question' => "Checked the plans, schedules and general notes - no header size is called out for #{mark}. " \
-                                          'What header (size and plies) should be used?' })
-          end
-          d.add_action_callback('submit') do |_c, a|
-            q = JSON.parse(a)['question'].to_s.strip
-            n = nil
-            operation('Submit RFI') do
-              n = Project.submit_rfi(wall_id, mark, q)
-              gg = Builder.find_wall(wall_id)
-              pp = Builder.params_of(gg)
-              pp['openings'] = pp['openings'].map { |x| x['mark'] == mark ? x.merge('rfi' => n) : x }
-              Builder.set_params(gg, pp)
-            end
-            d.close
-            msg = "RFI ##{n} submitted. #{mark} is on hold until the answer comes back - keep working on other openings and walls."
-            Sketchup.status_text = msg
-            refresh_frame
-            js(@frame, 'setStatus', msg) if @frame&.visible?
-            refresh_yard
-          end
-          d.add_action_callback('cancel') { |_c, _a| d.close }
-          d.show
-          d
-        end
-
-        # RFIs that just got their answers: tell the student, and the opening is off hold.
-        def notify_rfis(done)
-          return if done.nil? || done.empty?
-          # No pop-up: it would land in the middle of someone's clicking. The answer goes to
-          # Job Notes (badge) and the opening is tagged until they click it and read it.
-          marks = done.map { |r| "#{r['mark']}" }.join(', ')
-          Sketchup.status_text = "RFI answered for #{marks} - see Job Notes in the Framing panel, or click the opening."
-          refresh_frame
-          refresh_yard
-          Sketchup.active_model.active_view.invalidate
-        end
-
-        # Job Notes: RFIs, inspections, instructor notes - newest first.
+        # Job Notes: inspections, instructor notes, field notes - newest first.
         def job_notes
           d = Project.data
           seen = d['notes_seen_at'].to_f
           items = []
-          (d['rfis'] || []).each do |r|
-            at = (r['answered_at'] || r['at']).to_i
-            items << { 'kind' => 'RFI', 'at' => at, 'unseen' => !!r['answer'] && at > seen,
-                       'title' => "RFI ##{r['n']} - #{r['wall']} #{r['mark']} - #{r['answer'] ? 'answered' : 'waiting on answer'}",
-                       'lines' => ["Q: #{r['question']}"] + (r['answer'] ? ["A: #{r['answer']}"] : ["#{r['mark']} is on hold until the answer comes back."]) }
-          end
           (d['log'] || []).last(40).each do |l|
             at = l['at'].to_i
             items << { 'kind' => 'Inspection', 'at' => at, 'unseen' => at > seen,
@@ -541,7 +374,7 @@ module DMACC
             p = Builder.params_of(w)
             p['openings'].map do |o|
               head = o['type'] == 'Window' ? ", head height #{len_text(o['height'])}" : ''
-              hdr = o['header'] == Framing::RFI ? 'header: RFI out' : "header #{Framing.header_label(o)}"
+              hdr = "header #{Framing.header_label(o)}"
               { 'mark' => o['mark'], 'wall' => p['id'],
                 'text' => "#{o['mark']} #{o['type'].downcase} (#{p['id']}) - RO #{len_text(o['width'])} x #{len_text(Framing.ro_height(o))}#{head}, #{hdr}" }
             end
@@ -551,25 +384,8 @@ module DMACC
         def walls_list
           Builder.all_walls.map do |w|
             p = Builder.params_of(w)
-            held = p['openings'].select { |o| o['header'] == Framing::RFI }.map { |o| o['mark'] }
-            { 'id' => p['id'], 'level' => p['level'], 'type' => p['type'], 'stage' => Builder.stage(p), 'held' => held }
+            { 'id' => p['id'], 'level' => p['level'], 'type' => p['type'], 'stage' => Builder.stage(p), 'held' => [] }
           end.sort_by { |x| [x['level'], x['id']] }
-        end
-
-        # For the Framing panel. Students see status only; the instructor sees time left.
-        def rfi_state
-          delay = (Project.settings['rfi_delay_min'] || 32).to_f * 60
-          inst = Project.instructor?
-          (Project.data['rfis'] || []).map do |r|
-            left = [(r['at'].to_i + delay - Time.now.to_i) / 60.0, 0].max.ceil
-            { 'n' => r['n'], 'wall' => r['wall'], 'mark' => r['mark'], 'question' => r['question'],
-              'answer' => r['answer'],
-              'status' => if r['answer'] then 'answered'
-                          elsif inst then ((why = Project.rfi_stuck_reason(r)) ? "stuck: #{why}" : "answers itself in #{left} min")
-                          else 'submitted - awaiting response'
-                          end,
-              'can_answer' => inst && !r['answer'] }
-          end
         end
 
         # ---------------- shop drawing ----------------
@@ -588,7 +404,7 @@ module DMACC
           dlg
         end
 
-        # ---------------- yard + saw ----------------
+        # ---------------- framing panel ----------------
 
         def open_yard
           if @yard&.visible?
@@ -596,36 +412,9 @@ module DMACC
             @yard.bring_to_front
             return
           end
-          Yard.redraw unless Yard.group
           @yard = make('Framing', 'yard.html', 520, 820, 'yard')
           d = @yard
-          y_op = lambda do |name, &blk|
-            operation(name) { Yard.change(&blk) }
-            send_yard
-          end
           d.add_action_callback('ready') { |_c, _a| send_yard }
-          d.add_action_callback('set_stock') { |_c, a| id = JSON.parse(a)['id']; y_op.call('Choose Stock') { |y| y['stock'] = id }; activate_tool }
-          d.add_action_callback('set_cut') do |_c, a|
-            t = JSON.parse(a)['text'].to_s.strip
-            if t.empty? || %w[full f 0 -].include?(t.downcase)
-              y_op.call('Clear Saw Stop') { |y| y['cut'] = nil }
-            elsif (len = Framing.parse_len(t)) && len > 0
-              activate_tool
-              @tool.set_cut(len)
-              send_yard
-            else
-              js(d, 'setStatus', "Couldn't read that length - try 81 or 6' 9\".")
-            end
-          end
-          d.add_action_callback('toggle_offcuts') { |_c, a| on = JSON.parse(a)['on']; y_op.call('Offcuts First') { |y| y['use_offcuts'] = on } }
-          d.add_action_callback('take') do |_c, a|
-            err = nil
-            y_op.call('Pick Up Piece') { |y| y['hand'] = nil; _, err = YardLogic.take(y, JSON.parse(a)['id']) }
-            js(d, 'setStatus', err) if err
-            activate_tool
-          end
-          d.add_action_callback('set_down') { |_c, _a| y_op.call('Set Down') { |y| y['hand'] = nil } }
-          d.add_action_callback('discard') { |_c, a| y_op.call('Scrap Piece') { |y| YardLogic.discard(y, JSON.parse(a)['id']) } }
           d.add_action_callback('tool') { |_c, _a| activate_tool }
           d.add_action_callback('dtp') do |_c, _a|
             activate_tool
@@ -666,22 +455,6 @@ module DMACC
             @tool.focus(id) if @tool.respond_to?(:focus)
             focus_wall(id)
             Sketchup.active_model.active_view.invalidate
-          end
-          d.add_action_callback('answer_rfi') do |_c, a|
-            next unless Project.instructor?
-            args = JSON.parse(a)
-            n = args['n'].to_i
-            done = nil
-            operation('Answer RFI') do
-              if args['text'].to_s.strip.empty?
-                done = Project.release_rfis(n)
-              else
-                done = Project.answer_rfi_manual(n, args['header'], args['plies'].to_i, args['text'])
-              end
-            end
-            js(d, 'setStatus', "No span table row covers RFI ##{n} - type an answer with a header size.") if done.empty?
-            notify_rfis(done)
-            send_yard
           end
           d.add_action_callback('edit_opening') do |_c, a|
             g = focus_group or next
@@ -734,12 +507,6 @@ module DMACC
             g = focus_group or next
             Builder.highlight(g, JSON.parse(a)['slot'])
           end
-          d.add_action_callback('restock') do |_c, _a|
-            if Project.instructor?
-              operation('Restock Yard') { Yard.restock }
-              send_yard
-            end
-          end
           d.show
         end
 
@@ -748,8 +515,7 @@ module DMACC
         end
 
         def activate_tool
-          klass = Project.settings['guided'] ? GuidedTool : InstallTool
-          @tool = klass.new unless @tool.instance_of?(klass)
+          @tool = GuidedTool.new unless @tool.instance_of?(GuidedTool)
           Sketchup.active_model.select_tool(@tool)
         end
 
@@ -814,7 +580,7 @@ module DMACC
             'stage' => Builder.stage(p), 'openings' => p['openings'].size,
             'on_table' => Builder.on_table?(g),
             'editable' => p['openings'].reject { |o| slots.any? { |sl| sl.opening == o['mark'] && Inspector.complete?((p['entries'] || {})[sl.id]) } }
-                                       .map { |o| { 'mark' => o['mark'], 'answered' => !!o['rfi_new'] } },
+                                       .map { |o| { 'mark' => o['mark'], 'answered' => false } },
             'removable' => if %w[openings units].include?(Builder.stage(p))
                              p['openings'].reject { |o| slots.any? { |sl| sl.opening == o['mark'] && Inspector.complete?((p['entries'] || {})[sl.id]) } }
                                           .map { |o| o['mark'] }
@@ -827,26 +593,15 @@ module DMACC
         end
 
         def send_yard
-          y = Yard.data
-          fmt = ->(pc) { pc.merge('length_text' => len_text(pc['length'])) }
-          h = YardLogic.hand(y)
           js(@yard, 'load', {
                'wall' => wall_state(focus_group),
-               'mode' => (@tool&.mode || :nail).to_s,
-               'guided' => !!Project.settings['guided'],
+               'mode' => (@tool&.mode || :guided).to_s,
+               'guided' => true,
                'building' => building_state,
-               'rfis' => rfi_state,
+               'rfis' => [],
                'framing_table' => !!Project.settings['framing_table'],
                'notes' => job_notes,
                'walls' => walls_list,
-               'stock' => y['stock'], 'cut_text' => y['cut'] ? len_text(y['cut']) : '',
-               'use_offcuts' => !!y['use_offcuts'],
-               'hand' => h && fmt.call(h),
-               'cart' => y['cart'].reject { |c| h && c['id'] == h['id'] }.map(&fmt),
-               'piles' => y['piles'].sort_by { |pl| [Framing::ACTUAL[pl['size']], pl['label'].include?('precut') ? 0 : 1, pl['length']] },
-               'offcuts' => y['offcuts'].sort_by { |o| [o['size'], -o['length']] }.map(&fmt),
-               'stats' => Yard.stats,
-               'kerf_text' => Framing.fmt_in(Project.settings['kerf'] || YardLogic::KERF),
                'instructor' => Project.instructor? && Project.locked?
              })
         end
@@ -871,7 +626,7 @@ module DMACC
             begin
               operation('Import Header Tables') { Project.import_sfpa(path) }
               send_setup
-              js(d, 'setStatus', 'Header tables imported. RFIs on bearing walls answer from them now.')
+              js(d, 'setStatus', 'Header tables imported. The Header table button in the Frame Wall form shows them now.')
             rescue StandardError => e
               js(d, 'showErrors', ["Couldn't import that file: #{e.message}"])
             end
@@ -903,7 +658,6 @@ module DMACC
                'span_conditions' => dat['span_conditions'].to_s,
                'sfpa' => (t = Project.sfpa_tables) && t['source'],
                'settings' => dat['settings'],
-               'kerf_text' => Framing.fmt_in(dat['settings']['kerf'] || YardLogic::KERF),
                'feedback_levels' => Inspector::LEVELS.to_a,
                'sizes' => Framing::SIZES,
                'instructor' => Project.instructor?,
@@ -974,8 +728,6 @@ module DMACC
               d['span_conditions'] = data['span_conditions'].to_s.strip if Project.instructor? && data.key?('span_conditions')
               if Project.instructor? && data['settings']
                 st = data['settings'].dup
-                k = Framing.parse_len(st.delete('kerf_text'))
-                st['kerf'] = k if k && k >= 0 && k < 0.5
                 d['settings'] = d['settings'].merge(st)
               end
             end

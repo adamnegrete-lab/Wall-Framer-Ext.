@@ -29,29 +29,22 @@ module DMACC
           'shop_letters' => true,         # shop drawing shows X/K/J/C letters
           'shop_cutlist' => true,         # shop drawing includes the cut list
           'shop_elevation' => true,       # shop drawing draws every member
-          'kerf' => 0.125,
           'framing_table' => true,        # frame each wall flat beside the house, then stand it up
           'jobsite_order' => true,        # plates -> openings -> opening units -> commons -> double plate
           'student_layout' => true,       # students mark their own common-stud layout
-          'tape_readout' => false,        # show a tape reading while marking (off = use Tape Measure)
-          'guided' => true,               # pop-up framing: click a piece, enter its length
-          'popup_tips' => true,           # pop-ups say how to measure (not the answer)
-          'rfi_delay_min' => 1,           # TEST setting - normally 32          # RFIs answer themselves after this long (students don't see a timer)
           'ladder_oc' => 24               # ladder blocking spacing at tees
         },
         'pw_hash' => nil,
         'log' => [],          # inspection attempts
         'takeoff' => nil,     # student's takeoff rows
         'takeoff_log' => [],  # takeoff check attempts
-        'yard' => nil,        # material yard (piles, cart, offcuts)
         'dtp_order' => [],
         'dtp_seq' => nil,     # double plate pieces in the order they went on
-        'rfis' => [],
         'notes' => [],        # job notes the instructor posts
         'student_notes' => [],
-        'catches' => [],       # mistakes the inspector caught: one per wall + piece, with how many times # field notes the student saves (numbers off the plans, etc.)
+        'catches' => [],      # mistakes the inspector caught: one per wall + piece, with how many times
         'notes_seen_at' => 0, # Job Notes tab last opened
-        'sfpa' => nil,        # header tables imported by the instructor (kept in the model, not the extension)         # requests for information (header sizes not on the plans)
+        'sfpa' => nil,        # header tables imported by the instructor (else the built-in ones)
         # Header span table for this assignment, entered by the instructor from the
         # code book (IRC 2024 Table R602.7(1)) for the assignment's conditions.
         'span_table' => [],   # [{'size'=>'2x8','plies'=>2,'span'=>inches,'jacks'=>1}]
@@ -126,6 +119,13 @@ module DMACC
         # ----- ids -----
 
         # W-101, W-102 on Level 1; W-201 on Level 2 ...
+        # Walls taken back out (a loop drawn the wrong way): their numbers get used again.
+        def give_back_wall_ids(level_name, ids)
+          nums = ids.map { |id| id[/\d{2}\z/].to_i }.reject(&:zero?)
+          return if nums.empty?
+          update { |d| d['next_wall'][level_name] = nums.min }
+        end
+
         def next_wall_id(level_name)
           d = data
           idx = d['levels'].index { |l| l['name'] == level_name } || 0
@@ -142,60 +142,6 @@ module DMACC
           id
         end
 
-        # ---------- RFIs ----------
-
-        def submit_rfi(wall_id, mark, question)
-          n = nil
-          update do |d|
-            n = d['rfis'].size + 1
-            d['rfis'] << { 'n' => n, 'wall' => wall_id, 'mark' => mark, 'question' => question,
-                           'at' => Time.now.to_i, 'answer' => nil, 'answered_at' => nil }
-          end
-          n
-        end
-
-        # The "engineer's response": the instructor's span table for the
-        # assignment, or (2) 2x4 flat in a non-bearing wall (IRC R602.7.4).
-        def rfi_answer(rfi)
-          g = Builder.find_wall(rfi['wall']) or return nil
-          p = Builder.params_of(g)
-          o = p['openings'].find { |x| x['mark'] == rfi['mark'] } or return nil
-          unless p['bearing']
-            return { 'header' => Framing::FLAT, 'text' => "#{rfi['mark']} is in a non-bearing wall - use (2) 2x4 flat." }
-          end
-          sfpa_answer(g, o) || span_table_answer(o)
-        end
-
-        # Header tables: roof only (nothing framed above) or roof + wall + floor,
-        # looked up by the clear opening and the span the wall carries.
-        def sfpa_answer(g, o)
-          t = sfpa_tables or return nil
-          key = Builder.floor_above?(g) ? 'roof_floor' : 'roof'
-          span_ft = Builder.building_span(g) / 12.0
-          ci = t['spans'].index { |s| s >= span_ft - 0.01 } or return nil
-          ri = t['openings'].index { |w| w >= o['width'].to_f - 0.01 } or return nil
-          cell = t[key][ri][ci]
-          return nil unless cell['size'] # glulam - the instructor answers that one
-          { 'header' => cell['size'], 'plies' => cell['plies'].to_i,
-            'text' => "#{o['mark']}: use (#{cell['plies']}) #{cell['size']}." }
-        end
-
-        def span_table_answer(o)
-          span = o['width'].to_f
-          row = data['span_table'].select { |r| r['span'].to_f >= span - 1e-6 && Framing::ACTUAL[r['size']] }
-                                  .min_by { |r| [Framing::ACTUAL[r['size']], r['plies'].to_i] }
-          return nil unless row
-          cond = data['span_conditions'].to_s.strip
-          { 'header' => row['size'], 'plies' => row['plies'].to_i,
-            'text' => "#{o['mark']}: use (#{row['plies']}) #{row['size']}#{cond.empty? ? '' : " (#{cond})"}." }
-        end
-
-        # Why an RFI can't answer itself (for the instructor), or nil.
-        def rfi_stuck_reason(rfi)
-          return nil if rfi['answer'] || rfi_answer(rfi)
-          return 'no header tables imported (Project Setup)' unless sfpa_tables || data['span_table'].any?
-          'the table calls for glulam or the house is wider than 40\' - answer it yourself'
-        end
 
         def import_sfpa(path)
           t = JSON.parse(File.read(path))
@@ -247,22 +193,6 @@ module DMACC
           nil
         end
 
-        # Answer one RFI now (instructor) or every RFI whose time is up.
-        # Returns the RFIs answered.
-        def release_rfis(force_n = nil)
-          delay = (settings['rfi_delay_min'] || 32).to_f * 60
-          done = []
-          data['rfis'].each do |r|
-            next if r['answer']
-            next unless force_n == r['n'] || (force_n.nil? && Time.now.to_i - r['at'].to_i >= delay)
-            ans = rfi_answer(r)
-            next unless ans
-            apply_rfi(r, ans)
-            done << r.merge('answer' => ans['text'])
-          end
-          done
-        end
-
         # Log every real mistake an inspection catches (not blanks). One record per wall + piece.
         # Returns how many NEW catches this inspection added.
         def log_catches(wall_id, issues)
@@ -281,35 +211,6 @@ module DMACC
             end
           end
           added
-        end
-
-        # Instructor answers by hand (no span table row, or a different call).
-        def answer_rfi_manual(n, header, plies, text)
-          r = data['rfis'].find { |x| x['n'] == n && !x['answer'] } or return []
-          return [] unless Framing::SIZES.include?(header) || header == Framing::FLAT
-          ans = { 'header' => header, 'text' => text.to_s.strip }
-          ans['plies'] = plies if plies.positive?
-          apply_rfi(r, ans)
-          [r.merge('answer' => ans['text'])]
-        end
-
-        def apply_rfi(rfi, ans)
-          g = Builder.find_wall(rfi['wall'])
-          if g
-            p = Builder.params_of(g)
-            p['openings'] = p['openings'].map do |o|
-              next o unless o['mark'] == rfi['mark']
-              # the student reads the answer and updates the opening themselves
-              o.merge('rfi_new' => rfi['n'])
-            end
-            Builder.set_params(g, p)
-            Builder.rebuild(g)
-          end
-          update do |d|
-            r = d['rfis'].find { |x| x['n'] == rfi['n'] }
-            r['answer'] = ans['text']
-            r['answered_at'] = Time.now.to_i
-          end
         end
 
         def log_inspection(entry)
