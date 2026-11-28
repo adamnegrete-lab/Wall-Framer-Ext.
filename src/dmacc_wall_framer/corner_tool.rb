@@ -86,7 +86,7 @@ module DMACC
         unless hit.empty?
           ids = hit.map { |w| Builder.params_of(w)['id'] }.join(', ')
           return unless UI.messagebox("Changing this corner changes the length of #{ids}, which already has framing. " \
-                                      "That framing comes out (onto the offcut pile). Go ahead?", MB_YESNO) == IDYES
+                                      "That framing comes out. Go ahead?", MB_YESNO) == IDYES
         end
         model = Sketchup.active_model
         model.start_operation('Set Corner', true)
@@ -107,7 +107,7 @@ module DMACC
         menu.add_item("#{p['id']}: pull stud layout from #{other}") do
           if (p['oc'] || (p['marks'] || []).any?) &&
              UI.messagebox("#{p['id']}'s studs are already laid out. Changing the layout end pulls the studs, cripples " \
-                           'and header blocks (onto the offcut pile). Go ahead?', MB_YESNO) != IDYES
+                           'and header blocks. Go ahead?', MB_YESNO) != IDYES
             next
           end
           m = Sketchup.active_model
