@@ -29,3 +29,10 @@ key = {'walls'=>[{'id'=>'W-101','level'=>'Level 1','type'=>'EXT 2x6','p1'=>[0,0]
 stu = {'walls'=>[{'id'=>'W-101','level'=>'Level 1','type'=>'INT 2x4','p1'=>[192,1],'p2'=>[0,0],'openings'=>[{'mark'=>'w1','type'=>'Window','width'=>36.0,'height'=>80.0,'sill'=>42.0,'header_size'=>'2x6','center'=>[48.5,0]},{'mark'=>'D9','center'=>[0,0]}]}],
   'framing'=>{'W-101'=>{'correct'=>30,'total'=>34}}, 'takeoff'=>{'score'=>80.0}, 'log'=>[1,2,3]}
 require 'pp'; pp AnswerKey.compare(key, stu)
+# student-style lengths: units in words, unicode fractions; two whole numbers is a typo, not a sum
+{ '7ft 8 5/8in' => 92.625, "92⅝" => 92.625, '16 ft' => 192.0, '92 5/8in' => 92.625, "7’ 8 5/8”" => 92.625,
+  '7-8 5/8' => nil, '92 5/8 1/2' => nil }.each do |s, want|
+  got = Framing.parse_len(s)
+  raise "parse_len(#{s.inspect}) = #{got.inspect}, want #{want.inspect}" unless got == want
+end
+puts 'parse_len student formats ok'

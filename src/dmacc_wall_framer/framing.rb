@@ -626,7 +626,10 @@ module DMACC
 
       # Parses what students type: 92 5/8, 92-5/8, 7' 8-5/8", 7'8.625, 92.625
       def parse_len(str)
-        s = str.to_s.strip.downcase.tr('”“', '"').tr('’‘', "'")
+        s = str.to_s.strip.downcase.tr('”“″', '"').tr('’‘′', "'")
+        { '½' => ' 1/2', '¼' => ' 1/4', '¾' => ' 3/4', '⅛' => ' 1/8', '⅜' => ' 3/8', '⅝' => ' 5/8', '⅞' => ' 7/8',
+          '⅙' => nil, '⅓' => nil }.each { |k, v| s = s.gsub(k, v.to_s) if v }
+        s = s.gsub(/\s*(feet|foot|ft)\.?(?=[\s\d-]|\z)/, "'").gsub(/\s*(inches|inch|in)\.?\z/, '"')
         return nil if s.empty?
         ft = 0.0
         if s.include?("'")
@@ -638,6 +641,8 @@ module DMACC
         inch = 0.0
         unless s.empty?
           parts = s.split(/[\s-]+/)
+          # one whole number and/or one fraction: "7-8 5/8" (two whole numbers) is a typo, not 15 5/8
+          return nil if parts.count { |p| !p.include?('/') } > 1 || parts.count { |p| p.include?('/') } > 1
           parts.each do |p|
             if p.include?('/')
               n, dd = p.split('/')

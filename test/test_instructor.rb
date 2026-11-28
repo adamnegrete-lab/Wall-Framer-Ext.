@@ -6,7 +6,7 @@ include DMACC::WallFramer
 M = Sketchup.active_model; V = M.active_view
 def chk(c, m) = (puts((c ? 'PASS ' : 'FAIL ') + m); $f = true unless c)
 module Sketchup; class Group; def bounds = Geom::BoundingBox.new; end; end
-Instructor.define_singleton_method(:ok?) { true }
+Project.set_password('test'); Project.unlock('test')
 Instructor.draw_test_house
 ws = Builder.all_walls
 chk(ws.size >= 5, "test house drawn: #{ws.map { |w| Builder.params_of(w)['id'] }}")

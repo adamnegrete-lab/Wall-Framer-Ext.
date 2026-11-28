@@ -1,5 +1,5 @@
 {
-  "version": "0.20.0",
-  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.20.0.rbz",
-  "notes": "Cleanup release: one framing path (Frame Wall form + cut list), RFIs, pencil marks, material yard and right-click framing items removed. Two toolbars (Steps / Lists), Project Setup in the Extensions menu. Counterclockwise drawing and framing order; 40 ft wall cap. Standing-wall fixes go the real way (Demo first). Instructor menu behind the Project Setup password."
+  "version": "0.20.1",
+  "rbz": "https://raw.githubusercontent.com/adamnegrete-lab/Wall-Framer-Ext./main/releases/WallFramer_v0.20.1.rbz",
+  "notes": "Tightening pass: level inspection now checks double top plate laps (logged for grading, plate flagged red). Cut List / Frame Wall form entry points put an unframed wall on the framing table first, so nobody frames a standing wall by accident. Instructor menu needs a password set on the model. Lengths accept ft/in and fraction characters; '7-8 5/8' is rejected instead of read as 15 5/8. Clearer messages."
 }

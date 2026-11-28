@@ -45,4 +45,14 @@ fd.fire('frame_next'); fd.fire('ready')
 chk(fd.last('load')['wall']['id'] == 'W-103' && !Builder.on_table?(id.('W-102')), 'unfinished wall goes back on its line, next one comes up')
 # level inspection gate
 chk(Dialogs.inspect_level('Level 1').include?('W-102 (not framed)'), 'inspection lists what is still open')
+# the Header table button opens the form without moving anything; typing a row puts the wall on the table
+w4 = id.('W-104')
+Dialogs.focus_wall('W-104'); DMACC::WallFramer.header_table_tool
+fd = UI::HtmlDialog.all.reverse.find { |d| d.file.to_s.end_with?('frame.html') }
+chk(fd.last('load')['show_header_table'] && !Builder.on_table?(w4), 'Header Table button: form opens on the table, wall stays put')
+fd.fire('set_row', { 'key' => 'plate:BP', 'v' => "12'", 'size' => '2x6' })
+chk(Builder.on_table?(w4) && Builder.table_walls.size == 1, 'typing a cut length puts the wall on the framing table first')
+# Cut List button: straight to the table
+w2 = id.('W-102'); Dialogs.focus_wall('W-102'); DMACC::WallFramer.cut_list_tool
+chk(Builder.on_table?(w2) && Builder.table_walls.size == 1, 'Cut List button takes the wall to the table (the other one goes back on its line)')
 puts($f ? 'SOME FAILED' : 'ALL PASSED')

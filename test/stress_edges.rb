@@ -254,5 +254,72 @@ kase('grade a model with no walls in the key') do
   ok('empty key grades without crashing')
 end
 
+kase('Build and stand wall before the cut list is done') do
+  w = id.('W-104')
+  Dialogs.open_frame(w); d = CutStudent.frame_dialog; d.fire('ready')
+  d.fire('build_stand')
+  msg = d.scripts.reverse.find { |x| x.start_with?('setStatus(') }.to_s
+  msg.include?('Not built yet') ? ok("refused with a reason: #{msg[10, 90]}") : finding("Build and stand on an unfinished wall: #{msg[0, 100]}")
+end
+
+kase('Frame Wall form buttons after its wall was deleted') do
+  w = Builder.create_wall(Geom::Point3d.new(0, 400, 0), Geom::Point3d.new(120, 400, 0), 'Level 1', 'INT 2x4')
+  Dialogs.open_frame(w); d = CutStudent.frame_dialog; d.fire('ready')
+  Sketchup.active_model.entities.instance_variable_get(:@items).delete(w)
+  %w[ready frame_next continue build_stand shop inspect stand_up].each { |c| d.fire(c) rescue finding("form #{c} after delete: #{$!.class} #{$!.message}") }
+  d.fire('set_row', { 'key' => 'plate:BP', 'v' => "10'", 'size' => '2x4' }) rescue finding("set_row after delete: #{$!.message}")
+  d.fire('save_openings', { 'pos_mode' => 'center', 'openings' => [] }) rescue finding("save_openings after delete: #{$!.message}")
+  ok('form buttons on a deleted wall: no crash')
+end
+
+kase('Continue framing / Lists buttons with nothing on the table') do
+  Builder.table_walls.each { |w| Builder.stand_up(w) }
+  Dialogs.open_frame(id.('W-101')); d = CutStudent.frame_dialog
+  d.fire('continue') rescue finding("continue: #{$!.message}")
+  DMACC::WallFramer.shop_tool rescue finding("shop: #{$!.message}")
+  DMACC::WallFramer.inspect_tool rescue finding("inspect: #{$!.message}")
+  DMACC::WallFramer.dtp_tool rescue finding("dtp: #{$!.message}")
+  DMACC::WallFramer.tape_tool rescue finding("tape: #{$!.message}")
+  DMACC::WallFramer.frame_tool rescue finding("frame: #{$!.message}")
+  ok('toolbar buttons in odd states: no crash')
+end
+
+kase('Instructor menu without the password') do
+  n = UI.messages.size
+  Instructor.fill_wall; Instructor.frame_floor; Instructor.reset_wall; Instructor.draw_test_house
+  ms = UI.messages[n..]
+  ms.size == 4 && ms.all? { |m| m.include?('Instructor only') } ? ok('no password on the model: all four refuse') : finding("instructor items without a password: #{ms.first(2)}")
+  Project.set_password('pw'); Project.relock
+  n = UI.messages.size
+  Instructor.fill_wall
+  UI.messages[n..].any? { |m| m.include?('Unlock in Project Setup') } ? ok('password set but locked: refuses') : finding("locked instructor menu: #{UI.messages[n..].first}")
+end
+
+kase('Level 2 drawn clockwise') do
+  Project.update { |dd| dd['levels'] << { 'name' => 'Level 2', 'elev' => 109.0 } unless dd['levels'].any? { |l| l['name'] == 'Level 2' } }
+  V.ray = nil
+  n = Builder.all_walls.size
+  t = DrawWallTool.new('Level 2', 'EXT 2x6'); t.activate
+  pts = [[0, 0], [0, 168], [240, 168], [240, 0]]
+  t.onLButtonDown(0, 0, 0, V)
+  pts.each_with_index do |a, i|
+    b = pts[(i + 1) % 4]; len = Math.hypot(b[0] - a[0], b[1] - a[1])
+    t.onMouseMove(0, a[0] + (b[0] - a[0]) / len * 30, a[1] + (b[1] - a[1]) / len * 30, V)
+    t.onUserText(Framing.fmt_len(len), V)
+  end
+  ids = Builder.all_walls.select { |w| Builder.params_of(w)['level'] == 'Level 2' }.map { |w| Builder.params_of(w)['id'] }
+  ids.empty? ? ok('Level 2 clockwise loop undone') : finding("Level 2 clockwise loop kept #{ids}")
+  pts = [[0, 0], [240, 0], [240, 168], [0, 168]]
+  t = DrawWallTool.new('Level 2', 'EXT 2x6'); t.activate
+  t.onLButtonDown(0, 0, 0, V)
+  pts.each_with_index do |a, i|
+    b = pts[(i + 1) % 4]; len = Math.hypot(b[0] - a[0], b[1] - a[1])
+    t.onMouseMove(0, a[0] + (b[0] - a[0]) / len * 30, a[1] + (b[1] - a[1]) / len * 30, V)
+    t.onUserText(Framing.fmt_len(len), V)
+  end
+  ids = Builder.all_walls.select { |w| Builder.params_of(w)['level'] == 'Level 2' }.map { |w| Builder.params_of(w)['id'] }.sort
+  ids == %w[W-201 W-202 W-203 W-204] ? ok("redrawn counterclockwise: #{ids} (numbers given back)") : finding("Level 2 redraw got ids #{ids}")
+end
+
 File.write('/tmp/stress_edges.json', JSON.generate($findings))
 puts($findings.empty? ? 'ALL PASSED' : "#{$findings.size} FINDINGS")

@@ -51,6 +51,9 @@ check(fd.last('openingErrors').any? { |e| e.include?("couldn't read") }, 'bad op
 # fill it right, then two wrong rows
 CutStudent.fill(w1)
 check(Builder.stage(Builder.params_of(w1)) == 'framed', "framed from the cut list (#{Builder.stage(Builder.params_of(w1))})")
+check(Builder.on_table?(w1) || !Project.settings['framing_table'], 'Frame Wall form put the wall on the framing table')
+fd.fire('build_stand')
+check(!Builder.on_table?(w1), 'built and stood up')
 fd.fire('set_row', { 'key' => 'jack:D1', 'v' => '80', 'size' => '2x6' })
 check(fd.last('rowsUpdate')['err'].to_s.include?('Demo tool first'), "standing wall: can't swap a jack out from under its header (#{fd.last('rowsUpdate')['err']})")
 fd.fire('set_row', { 'key' => 'sill:W1', 'v' => '30', 'size' => '2x6' })

@@ -23,6 +23,7 @@ chk(joints.size == 6, "joints found in the model: #{joints.map { |j| "#{j['butt'
 # frame every wall except the double plate (fill entries directly)
 fill_all = lambda do |w|
   p = Builder.params_of(w)
+  p['openings_done'] = true; p['oc'] = p['spacing']
   p['marks'] = Framing.slots(p).select(&:common).map { |s| s.x + 0.75 - 0.75 }
   p['entries'] = Builder.work_slots(p).reject { |s| s.id == 'TP:2' }.to_h do |s|
     [s.id, s.expected.merge('pieces' => Array.new(s.plies || 1) { { 'size' => s.expected['size'], 'length' => s.expected['length'] } })]
@@ -72,4 +73,17 @@ r = Inspector.inspect_wall(Builder.params_of(id.('W-101')), Builder.params_of(id
 chk(r['correct'] == r['total'], "per-wall inspection still passes: #{r['summary']}")
 cl = Dialogs.expected_cut_list; puts "   ideal double plate cut list: #{cl.select { |(sz, l), _| [133+11.0, 181.0, 129.5, 48.0].include?(l) }}"
 File.write('/tmp/yard_state.json', JSON.generate(yd.last('load')))
+# level inspection checks the laps too
+puts '   stages: ' + walls.map { |w| Builder.stage(Builder.params_of(w)) }.uniq.join(',')
+m = Dialogs.inspect_level('Level 1')
+chk(m.include?('passed inspection'), "laps right -> level passes: #{m}")
+UI.answers[:msg] = IDYES
+top.(id.('W-102'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) # take E's piece off
+top.(id.('W-102'), 60); tool.onMouseMove(0,0,0,V); tool.onLButtonDown(0,0,0,V) # back on, after S and N
+bad = Builder.interlock('Level 1').reject { |c| c['ok'] }
+m = Dialogs.inspect_level('Level 1')
+chk(bad.any? && m.include?("don't lap") && m.include?('W-102'), "E reset last -> inspection catches the lap: #{m[0, 140]}")
+chk(Project.data['catches'].any? { |c| c['wall'] == 'W-102' && c['slot'].to_s.start_with?('LAP:') }, 'lap logged for grading')
+chk(Builder.params_of(id.('W-102'))['flags'].include?('TP:2'), "E's double plate flagged red")
+chk(DMACC::WallFramer.report_html(AnswerKey.compare({ 'format' => 'dmacc-wall-framer-key-1', 'walls' => [] }, DMACC::WallFramer.student_snapshot), { 'model' => 'x', 'created' => 'now', 'walls' => [] }).include?("double top plate doesn't lap"), 'lap entry reads cleanly in the grade report')
 puts($f ? 'SOME FAILED' : 'ALL PASSED')

@@ -31,7 +31,7 @@ module DMACC
 
         def parse_required(text, what, errs)
           v = Framing.parse_len(text)
-          errs << "#{what}: couldn't read \"#{text}\"." if v.nil?
+          errs << "#{what}: couldn't read \"#{text}\". Try 36 or 3' 0\" (feet with ', inches with \")." if v.nil?
           v
         end
 
@@ -91,6 +91,7 @@ module DMACC
         # One cut-list row typed in: store it, nail what can go in, send the table back.
         def set_row(data)
           g = frame_group or return
+          onto_table(g)
           before = Builder.stage(Builder.params_of(g))
           err = nil
           operation('Cut List') { err = CutList.set(g, data['key'], data['v'], data['size']) }
@@ -123,7 +124,7 @@ module DMACC
           else
             send_frame
             left = CutList.rows(p).reject { |r| %w[placed none].include?(r['state']) }
-            js(@frame, 'setStatus', "Not built yet - check: #{left.first(3).map { |r| "#{r['label']} (#{r['note']})" }.join('; ')}")
+            js(@frame, 'setStatus', "Not built yet - still to fill in or fix: #{left.first(3).map { |r| r['note'].to_s.empty? ? r['label'] : "#{r['label']} (#{r['note']})" }.join('; ')}#{left.size > 3 ? " and #{left.size - 3} more" : ''}.")
           end
           refresh_yard
           Sketchup.active_model.active_view.invalidate
@@ -190,6 +191,7 @@ module DMACC
 
         def save_openings(data)
           g = frame_group or return
+          onto_table(g)
           p = Builder.params_of(g)
           len = p['length'].to_f
           errs = []
@@ -285,11 +287,34 @@ module DMACC
           operation("Inspect #{level}") { res = ws.map { |w| inspect_group(w) } }
           return 'Inspection could not run.' unless res
           bad = res.select { |r| r['correct'] != r['total'] }
-          if bad.empty?
+          laps = lap_problems(level)
+          if bad.empty? && laps.empty?
             "#{level} passed inspection - every wall."
           else
-            "#{level}: #{bad.size} of #{res.size} walls have problems (red in the model): #{bad.map { |r| r['wall_id'] || r['summary'].split(':').first }.join(', ')}. Fix them and request again."
+            parts = []
+            parts << "#{bad.size} of #{res.size} walls have problems (red in the model): #{bad.map { |r| r['wall_id'] || r['summary'].split(':').first }.join(', ')}" unless bad.empty?
+            unless laps.empty?
+              parts << "double top plates don't lap at #{laps.map { |c| "#{c['joint']['butt']}/#{c['joint']['through']}" }.join(', ')} " \
+                       '(the wall that butts gets its double plate first - take the pieces off and set them again in order)'
+            end
+            "#{level}: #{parts.join('; ')}. Fix them and request again."
           end
+        end
+
+        # Corners and tees whose double plates don't lap: logged like any other catch, and the
+        # double plate on the butting wall shows red.
+        def lap_problems(level)
+          laps = Builder.interlock(level).select { |c| c['placed'] && !c['ok'] }
+          laps.group_by { |c| c['joint']['butt'] }.each do |wid, cs|
+            Project.log_catches(wid, cs.map { |c| { slot_id: "LAP:#{c['joint']['through']}", label: 'Double top plate lap', message: c['text'] } })
+            Project.log_inspection('wall' => wid, 'summary' => "#{wid}: double top plate doesn't lap at #{cs.map { |c| c['joint']['through'] }.join(', ')}.")
+            g = Builder.find_wall(wid) or next
+            p = Builder.params_of(g)
+            p['flags'] = ((p['flags'] || []) + ['TP:2']).uniq
+            Builder.set_params(g, p)
+            Builder.rebuild(g)
+          end
+          laps
         end
 
         def inspect_focus_level
@@ -304,6 +329,25 @@ module DMACC
         end
 
         # Frame Wall form: move on to the next wall in order (stands this one up first if it's framed).
+        # Any "open the cut list" button: a wall that hasn't been framed yet goes to the framing
+        # table first (same as clicking it with Frame), so nobody frames a standing wall by accident.
+        def start_wall(g, header_table: false)
+          activate_tool
+          if @tool.respond_to?(:to_table?) && @tool.to_table?(g)
+            @tool.to_table(g)
+            open_frame(g, header_table: true) if header_table
+          else
+            focus_wall(Builder.params_of(g)['id'])
+            open_frame(g, header_table: header_table)
+          end
+        end
+
+        # Typing into the form for a wall that's still standing unframed: it goes to the table first.
+        def onto_table(g)
+          activate_tool
+          @tool.to_table(g) if @tool.respond_to?(:to_table?) && @tool.to_table?(g)
+        end
+
         def frame_next
           g = frame_group or return
           activate_tool
@@ -317,7 +361,7 @@ module DMACC
             msg = if left.any? { |w| Builder.params_of(w)['level'] == lv }
                     "#{Builder.params_of(left.first)['id']} still needs framing."
                   elsif Builder.level_inspection_blockers(lv).any?
-                    "Every wall on #{lv} is framed and standing. Next: double top plates (Framing Panel), then request inspection. The next floor opens after that."
+                    "Every wall on #{lv} is framed and standing. Next: Double Top Plates (on the Steps toolbar), then Request Inspection. The next floor opens after that."
                   else
                     "Every wall is framed and standing. Request inspection for #{lv} if you haven't."
                   end
@@ -461,7 +505,7 @@ module DMACC
             activate_tool
             mark = JSON.parse(a)['mark']
             next send_yard unless Builder.params_of(g)['openings'].any? { |o| o['mark'] == mark }
-            open_frame(g)
+            start_wall(g)
             send_yard
           end
           d.add_action_callback('stand_up') do |_c, _a|
@@ -484,8 +528,7 @@ module DMACC
           end
           d.add_action_callback('openings_done') do |_c, _a|
             g = focus_group or next
-            activate_tool
-            open_frame(g)
+            start_wall(g)
             send_yard
           end
           d.add_action_callback('check_interlock') do |_c, _a|
@@ -502,7 +545,7 @@ module DMACC
             send_yard
           end
           d.add_action_callback('shop') { |_c, _a| (g = focus_group) && open_shop(g) }
-          d.add_action_callback('openings') { |_c, _a| (g = focus_group) && open_frame(g) }
+          d.add_action_callback('openings') { |_c, _a| (g = focus_group) && start_wall(g) }
           d.add_action_callback('zoom') do |_c, a|
             g = focus_group or next
             Builder.highlight(g, JSON.parse(a)['slot'])

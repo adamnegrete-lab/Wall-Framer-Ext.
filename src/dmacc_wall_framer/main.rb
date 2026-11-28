@@ -27,7 +27,7 @@ module DMACC
         Builder.ensure_unique_ids
         walls = Builder.selected_walls
         return UI.messagebox('Select one wall first (click it with the Select tool).') unless walls.size == 1
-        Dialogs.open_frame(walls.first)
+        Dialogs.start_wall(walls.first)
       end
 
       def change_wall_type
@@ -138,6 +138,7 @@ module DMACC
         end.join
         notes = '<p>No differences found.</p>' if notes.empty?
         log = d['log'].last(40).map do |l|
+          next "<li>#{h(l['time'])} - #{h(l['summary'])}</li>" unless l['total']
           "<li>#{h(l['time'])} - #{h(l['wall'])}: #{l['correct']}/#{l['total']} correct, #{l['wrong']} wrong, #{l['blank']} blank</li>"
         end.join
         tk = d['takeoff_log'].map { |l| "<li>#{h(l['time'])} - #{l['score']}%</li>" }.join
@@ -207,7 +208,7 @@ module DMACC
       def show_log
         return unless require_instructor
         d = Project.data
-        lines = d['log'].last(30).map { |l| "#{l['time']}  #{l['wall']}: #{l['correct']}/#{l['total']}" }
+        lines = d['log'].last(30).map { |l| l['total'] ? "#{l['time']}  #{l['wall']}: #{l['correct']}/#{l['total']}" : "#{l['time']}  #{l['summary']}" }
         UI.messagebox("Inspections: #{d['log'].size}\nTakeoff checks: #{d['takeoff_log'].size}\n\n#{lines.join("\n")}")
       end
     end
@@ -268,7 +269,7 @@ module DMACC
       # Lists toolbar: the Frame Wall form for the wall you're on.
       def cut_list_tool
         g = Dialogs.focus_group or return UI.messagebox('Place some walls first.')
-        Dialogs.open_frame(g)
+        Dialogs.start_wall(g)
       end
 
       def header_table_tool
@@ -315,7 +316,7 @@ module DMACC
       sub = cm.add_submenu('Wall Framer')
       if Builder.selected_walls.size == 1
         sub.add_item('Frame This Wall') { frame_tool }
-        sub.add_item('Frame Wall Form...') { Dialogs.open_frame(Builder.selected_walls.first) }
+        sub.add_item('Frame Wall Form...') { Dialogs.start_wall(Builder.selected_walls.first) }
         sub.add_item('Redo Corners + Stud Layout') do
           w = Builder.selected_walls.first
           Dialogs.operation('Redo Stud Layout') { Builder.reset_commons(w) }

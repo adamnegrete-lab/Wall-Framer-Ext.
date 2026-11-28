@@ -322,3 +322,10 @@ module Sketchup
     def deleted? = !!@deleted
   end
 end
+# DUMP_JS=file: write every dialog's scripts at exit, for the HTML runtime check (scripts/js_check)
+if ENV['DUMP_JS']
+  at_exit do
+    out = UI::HtmlDialog.all.select(&:file).map { |d| { 'file' => File.basename(d.file.to_s), 'scripts' => d.scripts.last(60) } }
+    File.write(ENV['DUMP_JS'], JSON.generate(out))
+  end
+end

@@ -36,6 +36,23 @@ PLANS = {
   'E' => { name: "2-story 24x20", ext: [[0, 0], [288, 0], [288, 240], [0, 240]], runs: %w[through butt through butt],
            openings: { 0 => [['W1', 'Window', 96, 36, 48, 82.5, '2x10', 2]], 2 => [['D1', 'Door', 144, 38, 82.5, nil, '2x10', 3]] },
            upper: { openings: { 0 => [['W5', 'Window', 96, 36, 48, 82.5, '2x8', 2]], 2 => [['W6', 'Window', 144, 36, 48, 82.5, '2x8', 3]] } } },
+  'H' => { name: "Habitat 1348-24 2-story (main 24x29, upper 24x30 with a 1' cantilever)",
+           ext: [[0, 0], [288, 0], [288, 348], [0, 348]], runs: %w[through butt through butt], type: 'EXT 2x6 24',
+           openings: { 0 => [['W1', 'Window', 54, 36, 60, 84.625, '2x8', 3], ['D1', 'Door', 118, 38, 82.5, nil, '2x10', 3],
+                             ['W2', 'Window', 170, 36, 60, 84.625, '2x8', 3], ['W3', 'Window', 226, 36, 60, 84.625, '2x8', 3]],
+                       1 => [['W4', 'Window', 190, 36, 60, 84.625, '2x8', 3], ['W5', 'Window', 300, 36, 60, 84.625, '2x8', 3]],
+                       2 => [['W6', 'Window', 50, 36, 60, 84.625, '2x8', 3], ['W7', 'Window', 100, 36, 60, 84.625, '2x8', 3],
+                             ['D2', 'Door', 150, 38, 82.5, nil, '2x10', 3], ['W8', 'Window', 262, 24, 60, 84.625, '2x6', 3]],
+                       3 => [['W9', 'Window', 178, 36, 60, 84.625, '2x8', 3]] },
+           ints: [[5.5, 204.0, 96.0, 204.0, 'INT 2x4', []],
+                  [96.0, 204.0, 96.0, 342.5, 'INT 2x4', [['D3', 'Door', 40, 32, 82.5, nil, :flat, nil]]]],
+           upper: { ext: [[0, -12], [288, -12], [288, 348], [0, 348]], runs: %w[through butt through butt],
+                    openings: { 0 => [['W21', 'Window', 40, 36, 60, 84.625, '2x8', 2], ['W22', 'Window', 84, 36, 60, 84.625, '2x8', 2],
+                                      ['W23', 'Window', 196, 36, 60, 84.625, '2x8', 2], ['W24', 'Window', 240, 36, 60, 84.625, '2x8', 2]],
+                                2 => [['W25', 'Window', 150, 36, 60, 84.625, '2x8', 2]], 3 => [['W26', 'Window', 140, 36, 60, 84.625, '2x8', 2]] },
+                    ints: [[5.5, 120.0, 282.5, 120.0, 'INT 2x4', [['D21', 'Door', 100, 30, 82.5, nil, :flat, nil], ['D22', 'Door', 180, 30, 82.5, nil, :flat, nil]]],
+                           [150.0, -6.5, 150.0, 120.0, 'INT 2x4', []],
+                           [216.0, 120.0, 216.0, 342.5, 'INT 2x4', [['D23', 'Door', 60, 30, 82.5, nil, :flat, nil]]]] } },
   'F' => { name: "16x12 drawn clockwise (body outside?)", ext: [[0, 0], [0, 144], [192, 144], [192, 0]], runs: %w[through butt through butt],
            openings: { 1 => [['W1', 'Window', 96, 36, 48, 82.5, '2x8', 3]] } },
   'G' => { name: "bay with a 45-degree corner", ext: [[0, 0], [240, 0], [240, 96], [192, 144], [0, 144]], runs: %w[through butt through butt through],
@@ -73,17 +90,27 @@ levels = [['Level 1', PLAN[:openings]]]
 levels << ['Level 2', PLAN[:upper][:openings]] if PLAN[:upper]
 WALL_OPS = {}
 levels.each do |lv, ops|
-  ext = draw_level(lv, PLAN[:ext], PLAN[:type] || 'EXT 2x6')
-  finding("#{lv}: drew #{ext.size} walls for #{PLAN[:ext].size} sides") if ext.size != PLAN[:ext].size
+  lp = lv == 'Level 1' ? PLAN : PLAN.merge(PLAN[:upper].slice(:ext, :runs)).merge(ints: PLAN[:upper][:ints])
+  ext = draw_level(lv, lp[:ext], PLAN[:type] || 'EXT 2x6')
+  finding("#{lv}: drew #{ext.size} walls for #{lp[:ext].size} sides") if ext.size != lp[:ext].size
   ext.each_with_index do |w, i|
-    Builder.set_run(w, PLAN[:runs][i])
+    Builder.set_run(w, lp[:runs][i])
     WALL_OPS[Builder.params_of(w)['id']] = (ops[i] || []).map(&:dup)
     Builder.set_layout_from(w, true) if (PLAN[:layout_end] || []).include?(i)
   end
-  next unless lv == 'Level 1'
-  (PLAN[:ints] || []).each do |x1, y1, x2, y2, type, iops|
-    w = Builder.create_wall(Geom::Point3d.new(x1, y1, 0), Geom::Point3d.new(x2, y2, 0), lv, type)
+  z = Project.level(lv)['elev'].to_f rescue 0.0
+  (lp[:ints] || []).each do |x1, y1, x2, y2, type, iops|
+    w = Builder.create_wall(Geom::Point3d.new(x1, y1, z), Geom::Point3d.new(x2, y2, z), lv, type)
     WALL_OPS[Builder.params_of(w)['id']] = iops.map(&:dup)
+  end
+  # partitions meeting each other at an L: settle them like a student in the Corners tool
+  10.times do
+    open = Builder.plan_corners(lv)[1].select { |c| %w[unset conflict].include?(c['status']) }
+    break if open.empty?
+    c = open.first
+    a, b = c['walls'].map { |n| Builder.find_wall(n) }
+    puts "   Corners tool: #{c['walls'].join(' & ')} at #{c['at']} (#{c['status']})"
+    Builder.set_run(b, 'through'); Builder.set_run(a, 'butt')
   end
   Builder.resolve_layout(lv)
 end
@@ -294,7 +321,12 @@ def do_dtps(lv)
   end
   lw = Builder.level_walls(lv)
   # correct order: walls that butt (interior tees, butt corners) before the walls they butt into
-  order = lw.sort_by { |w| q = Builder.params_of(w); [q['function'] == 'Interior' ? 0 : (q['run'] == 'butt' ? 1 : 2), q['id']] }
+  # (a partition that other partitions tee into waits for them)
+  _ws, _sh, joints = Builder.dtp_context(lv)
+  before = Hash.new { |h, k| h[k] = [] }
+  joints.each { |j| before[j['through']] << j['butt'] }
+  depth = Hash.new { |h, id| h[id] = before[id].empty? ? 0 : 1 + before[id].map { |b| h[b] }.max }
+  order = lw.sort_by { |w| q = Builder.params_of(w); [depth[q['id']], q['id']] }
   order.each do |w|
     20.times do
       free = Builder.dtp_free(w)
@@ -353,7 +385,7 @@ lvs.reject { |lv| DONE_DTP[lv] }.each do |lv|
   m = Dialogs.inspect_level(lv)
   finding("#{lv}: inspection opened before the double plates: #{m}") unless m.include?('Inspection opens')
 end
-puts "   framed #{ok.count(true)} of #{walls.size} walls; pop-ups: #{S.popups.size}"
+puts "   framed #{ok.count(true)} of #{walls.size} walls; pop-ups: #{S.popups.size} #{S.popups.uniq.first(4)} msgs: #{UI.messages.map { |m| m.to_s[0, 70] }.uniq.first(4)}"
 TOOL.set_mode(:dtp)
 lvs.reject { |lv| DONE_DTP[lv] }.each { |lv| do_dtps(lv) }
 
@@ -381,5 +413,14 @@ finding('grade report failed to build') unless html.include?('Grade Report')
 YD.fire('ready')
 ld = YD.last('load')
 puts "   job notes: #{ld['notes']['items'].size} items, plans: #{ld['notes']['plans'].size} openings"
+# every other dialog opens on the finished model without errors
+begin
+  Dialogs.open_setup; sd = UI::HtmlDialog.all.last; sd.fire('ready') if sd.cbs['ready']
+  Dialogs.open_takeoff; td = UI::HtmlDialog.all.last; td.fire('ready') if td.cbs['ready']
+  Dialogs.open_shop(Builder.all_walls.first)
+  DMACC::WallFramer.header_table_tool
+rescue StandardError => e
+  finding("opening the other dialogs crashed: #{e.class}: #{e.message} @ #{e.backtrace.find { |l| l.include?('dmacc') }}")
+end
 File.write("/tmp/stress_#{KEY}.json", JSON.generate('findings' => $findings, 'popups' => S.popups.size))
 puts($findings.empty? ? 'ALL PASSED' : "#{$findings.size} FINDINGS")

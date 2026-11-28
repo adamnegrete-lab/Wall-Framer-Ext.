@@ -162,7 +162,7 @@ module DMACC
           fmt = ->(v) { v == v.round ? v.round.to_s : v.to_s }
           issues << Issue.new('LAYOUT', 'Stud layout', ['layout'],
                               "Studs are laid out at #{fmt.call(oc)}\" O.C. - this wall type is #{fmt.call(wall['spacing'].to_f)}\" O.C.",
-                              'Check the wall legend on the plans for the stud spacing, then redo the stud layout (right-click the wall).', nil)
+                              'Check the wall legend on the plans for the stud spacing, then fix the Stud spacing row in the Frame Wall form.', nil)
         end
 
         # Plate splices have to land centered on a stud

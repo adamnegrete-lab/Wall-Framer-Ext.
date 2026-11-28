@@ -247,6 +247,7 @@ function gotoRow(key) {
   var f = row.querySelector('[data-key]'); if (f) setTimeout(function () { f.focus(); if (f.select) f.select(); }, 30);
 }
 function rowsUpdate(u) {
+  if (!S) { sketchup.ready("{}"); return; }
   S.cutlist = u.rows; S.on_table = u.on_table; S.stage = u.stage; lastStage = u.stage; S.ready_to_build = u.ready_to_build;
   renderCut(u.rows);
   $('next').textContent = u.next;

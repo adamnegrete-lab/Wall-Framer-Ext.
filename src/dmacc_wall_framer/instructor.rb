@@ -5,7 +5,12 @@ module DMACC
     module Instructor
       module_function
 
+      # Only with a password set AND unlocked: a model with no password would hand these to students.
       def ok?
+        unless Project.locked?
+          UI.messagebox('Instructor only. Set an instructor password in Project Setup first - until a model has one, these stay off.')
+          return false
+        end
         return true if Project.instructor?
         UI.messagebox('Instructor only. Unlock in Project Setup with the instructor password first.')
         false
